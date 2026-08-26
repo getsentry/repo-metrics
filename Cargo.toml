@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Fast local git repository metrics and visualizations, straight from the repo"
 license = "MIT"
-repository = "https://github.com/ryan953/repo-metrics"
+repository = "https://github.com/getsentry/repo-metrics"
 readme = "README.md"
 
 [[bin]]

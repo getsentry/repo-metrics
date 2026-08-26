@@ -9,7 +9,7 @@ for you.
 
 ## Install
 
-Grab a build from the [releases page](https://github.com/ryan953/repo-metrics/releases)
+Grab a build from the [releases page](https://github.com/getsentry/repo-metrics/releases)
 — macOS on Apple silicon or Intel, and Linux on x86_64 — or build it yourself:
 
 ```bash
@@ -72,7 +72,7 @@ reports what it found and leaves the repository alone.
 ```
 = getsentry/relay          up to date
 ↑ getsentry/sentry         fast-forwarded 14 commits
-! getsentry/relay           fetched; 3 behind, working tree dirty
+! getsentry/relay          fetched; 3 behind, working tree dirty
 ! getsentry/snuba          fetched; 1 local commit not pushed, 2 behind
 x getsentry/private-thing  failed: Repository not found
 ```
@@ -294,7 +294,7 @@ Not every bot is a bot in the same sense. A revert bot and a license-header bump
 are automation; Seer and Junior are writing code. They're counted separately.
 
 Identities are keyed on the numeric GitHub user id where there is one, because
-bots get renamed. One id shows up in its history under four different names.
+bots get renamed: one id has appeared under four different names.
 
 `@users.noreply.github.com` is not a bot signal. It's the default privacy address
 for ordinary accounts, and treating it as one classifies most of a team as robots.

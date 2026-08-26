@@ -255,7 +255,8 @@ pub fn resolve<'a>(
 
 /// Repo selection tries progressively looser matches and stops at the first that
 /// hits anything. A plain substring test alone is wrong here: `--repo sentry` would
-/// also select `getsentry/relay`, because "getsentry" contains "sentry".
+/// also select `getsentry/sentry-docs`, and `--repo foo` would select
+/// `otherorg/foo-tools`, because a bare substring test matches far too much.
 /// One rung of the repo-matching ladder.
 type RepoMatcher = Box<dyn Fn(&RepoData) -> bool>;
 

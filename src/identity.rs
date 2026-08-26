@@ -93,7 +93,7 @@ fn rule_priority(kind: &str, value: &str) -> i64 {
 const DEFAULTS: &[(&str, &str, &str, ToolKind)] = &[
     // --- coding agents -------------------------------------------------------
     // Keyed on the numeric GitHub id wherever one exists, because bots get
-    // renamed: 157164994 appears as sentry-autofix[bot], seer-by-sentry[bot],
+    // renamed: 157164994 has appeared as sentry-autofix[bot], seer-by-sentry[bot],
     // sentry-autofix-experimental[bot] and sentry-ai-autofix-experimental[bot].
     ("github_user_id", "157164994", "seer", ToolKind::Agent),
     ("github_user_id", "264270552", "jr", ToolKind::Agent),

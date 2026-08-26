@@ -12,7 +12,7 @@ chk(){ # chk <desc> <expected-count> <pattern> <cmd...>
 chk "assist header"     1 "Authorship over time"  $B assist --repo sentry --since 2026-06-01
 chk "assist bands"      4 "commits$"              $B assist --repo sentry --since 2026-06-01
 chk "hotspots header"   1 "Fastest-moving"        $B hotspots --repo sentry --since 1y --top 3
-chk "hotspots rows"     3 "^  [a-z.]"             $B hotspots --repo sentry --since 1y --top 3
+chk "hotspots rows"     3 "^  [a-z.].*[0-9]"             $B hotspots --repo sentry --since 1y --top 3
 chk "tree header"       1 "^[0-9,]* files$"               $B tree --repo sentry --depth 1
 chk "timeseries header" 1 "Commits over time"     $B timeseries --repo sentry --by month --since 1y
 chk "authors header"    1 "^Authors$"             $B authors --repo sentry --top 5
