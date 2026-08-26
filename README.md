@@ -106,8 +106,7 @@ or cron entry that runs `repo-metrics refresh`.
 repo-metrics timeseries --repo sentry --by week --split assist
 repo-metrics folders    --repo sentry --depth 2 --metric churn --since 2y
 repo-metrics hotspots   --repo sentry --since 90d --top 20
-repo-metrics tree       --repo sentry --at 2025-06-01 --subpath src/sentry
-repo-metrics radial     --repo sentry --depth 3
+repo-metrics tree       --repo sentry --at 2025-06-01 --subpath src/sentry --depth 2
 repo-metrics compare    2025-H2 2026-H1 --repo sentry
 repo-metrics flags      --repo sentry --z 2.5 --min-churn 200
 repo-metrics assist     --repo sentry --by month
@@ -119,8 +118,7 @@ repo-metrics authors    --repo sentry --since 6m --top 25
 | `timeseries` | Commits over time, split by assist kind, tool, author or language |
 | `folders` | Commits or churn per folder over time |
 | `hotspots` | Which directories are moving fastest |
-| `tree` | Folder sizes at a point in time, one level at a time |
-| `radial` | The same snapshot as a sunburst |
+| `tree` | Folder sizes at a point in time, as an indented tree or a sunburst |
 | `compare` | Two periods side by side |
 | `flags` | Weeks where a folder broke out of its own trailing baseline |
 | `assist` | Human vs agent-assisted vs bot over time |
@@ -129,6 +127,10 @@ repo-metrics authors    --repo sentry --since 6m --top 25
 Every view takes `--repo`, `--since`, `--until` and `--path`. Dates can be
 `YYYY-MM-DD`, `90d`, `12w`, `6m`, `2y` or a year. `compare` also understands
 `2025-H1`, `2025-Q3` and `start:end`.
+
+`tree` renders as an indented list in the terminal and as a sunburst in HTML;
+`--depth` controls how many levels deep it goes. `radial` is accepted as an alias
+for it.
 
 `repos` lists what's in the cache.
 

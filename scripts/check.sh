@@ -20,6 +20,13 @@ chk "compare header"    1 "^Compare"              $B compare 2025-H2 2026-H1 --r
 chk "flags header"      1 "interesting periods"   $B flags --repo sentry --since 2y
 chk "folders header"    1 "Folders over time"     $B folders --repo sentry --since 1y
 chk "source link"       1 "https://github.com"    $B hotspots --repo sentry --since 1y --top 3
+# tree and radial were once two views rendering identically; radial is now only an
+# alias, and must not come back as its own subcommand
+[ "$($B --help 2>&1 | grep -cE '^  radial')" = "0" ] || { echo "  FAIL radial is a separate subcommand again"; fail=1; }
+diff <($B tree --repo sentry --depth 2 --format json 2>/dev/null) \
+     <($B radial --repo sentry --depth 2 --format json 2>/dev/null) >/dev/null \
+  || { echo "  FAIL radial alias diverged from tree"; fail=1; }
+
 # json/html stay well-formed
 $B hotspots --repo sentry --since 1y --format json 2>/dev/null | python3 -c 'import json,sys; json.load(sys.stdin)' || { echo "  FAIL json invalid"; fail=1; }
 $B hotspots --repo sentry --since 1y --format html -o /tmp/r.html >/dev/null 2>&1

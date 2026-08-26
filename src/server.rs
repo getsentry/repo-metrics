@@ -409,12 +409,14 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
             depth.max(1),
             top,
         )?,
+        // `radial` was a second view that rendered identically to `tree`; it stays
+        // accepted so old links keep working, but there is only one view now.
         "tree" | "radial" => cmds::tree(
             &cache,
             &f,
             opt(q, "at").as_deref(),
             &opt(q, "subpath").unwrap_or_default(),
-            if view == "radial" { depth.max(2) } else { depth.max(1) },
+            depth.max(1),
         )?,
         other => bail!("unknown view {other:?}"),
     };
@@ -465,8 +467,7 @@ const VIEWS=[
   ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','split','top'],{{}}],
   ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','depth','top'],{{depth:'1'}}],
   ['hotspots',  'Fastest-moving',      ['repo','since','until','path','depth','top'],{{depth:'2',top:'20'}}],
-  ['tree',      'Folder sizes',        ['repo','at','subpath','depth'],{{depth:'1'}}],
-  ['radial',    'Radial tree',         ['repo','at','subpath','depth'],{{depth:'2'}}],
+  ['tree',      'Folder sizes',        ['repo','at','subpath','depth'],{{depth:'2'}}],
   ['compare',   'Compare periods',     ['repo','a','b','depth','top'],{{depth:'1'}}],
   ['flags',     'Interesting periods', ['repo','since','until','path','depth','z','min_churn','top'],{{depth:'1',top:'30'}}],
   ['assist',    'Human vs agent',      ['repo','since','until','path','by'],{{by:'month'}}],

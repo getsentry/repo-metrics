@@ -150,7 +150,8 @@ enum Cmd {
         #[command(flatten)]
         scope: Scope,
     },
-    /// Folder sizes at a point in time, one level at a time
+    /// Folder sizes at a point in time, as a tree (terminal) or sunburst (html)
+    #[command(alias = "radial")]
     Tree {
         /// Snapshot date; defaults to HEAD
         #[arg(long)]
@@ -159,17 +160,6 @@ enum Cmd {
         #[arg(long, default_value = "")]
         subpath: String,
         #[arg(long, default_value = "1")]
-        depth: usize,
-        #[command(flatten)]
-        scope: Scope,
-    },
-    /// Full-depth tree at a point in time, for the sunburst view
-    Radial {
-        #[arg(long)]
-        at: Option<String>,
-        #[arg(long, default_value = "")]
-        subpath: String,
-        #[arg(long, default_value = "3")]
         depth: usize,
         #[command(flatten)]
         scope: Scope,
@@ -426,13 +416,6 @@ fn main() -> Result<()> {
             let (c, _) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth)?;
-            stamp_source(&mut o, &c, &f);
-            emit(&o, &scope)?;
-        }
-        Cmd::Radial { at, subpath, depth, scope } => {
-            let (c, _) = load()?;
-            let f = scope.filter()?;
-            let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth.max(2))?;
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
