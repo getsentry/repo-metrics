@@ -189,8 +189,11 @@ it, with a `..` button above the table to come back up. In the folder view the
 sunburst arcs are clickable too. Drilling is a navigation, so Back undoes it and
 the path lands in the URL like everything else.
 
-Every view keeps its state in the URL, so a chart you've drilled into can be
-bookmarked and comes back exactly as you left it:
+The URL is the single source of truth for what you're looking at. Every
+interaction writes the URL first, and the controls and the chart are both rebuilt
+from it, so the address bar, the filter inputs and what's on screen can't drift
+apart. A view you've drilled into can be bookmarked and comes back exactly as you
+left it:
 
 ```
 http://127.0.0.1:7777/?view=tree&repo=getsentry/sentry&subpath=src/sentry&at=2025-06-01&depth=2

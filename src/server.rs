@@ -480,7 +480,8 @@ const VIEWS=[
 ];
 // Per-view defaults win over the field default, but never over something the
 // reader has already chosen for that field.
-function viewDef(f){{const v=VIEWS.find(x=>x[0]===view); return (v[3]||{{}})[f]; }}
+function viewDefFor(v,f){{const e=VIEWS.find(x=>x[0]===v); return ((e&&e[3])||{{}})[f]; }}
+function viewDef(f){{ return viewDefFor(view,f); }}
 const FIELDS={{
   repo:  {{t:'select',label:'repo',opts:[]}},
   since: {{t:'text',label:'since',ph:'2024-01-01 / 90d'}},
@@ -515,8 +516,7 @@ function readUrl(){{
   for(const [k,val] of q){{ if(k!=='view'&&FIELDS[k]!==undefined)state[k]=val; }}
 }}
 
-function syncUrl(push){{
-  const qs='?'+params();
+function syncUrl(qs,push){{
   if(location.search===qs)return;          // nothing changed, no history entry
   history[push?'pushState':'replaceState'](null,'',qs);
 }}
@@ -524,9 +524,7 @@ function syncUrl(push){{
 function buildTabs(){{
   el('tabs').innerHTML=VIEWS.map(([k,label])=>
     `<button role="tab" data-v="${{k}}" aria-selected="${{k===view}}">${{label}}</button>`).join('');
-  el('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{{
-    view=b.dataset.v;buildTabs();buildControls();load(true);
-  }});
+  el('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>navigate({{view:b.dataset.v}},true));
 }}
 
 function buildControls(){{
@@ -547,36 +545,58 @@ function buildControls(){{
   }}).join('');
   el('controls').querySelectorAll('[data-f]').forEach(inp=>{{
     const ev=inp.tagName==='SELECT'?'change':'change';
-    inp.addEventListener(ev,()=>{{state[inp.dataset.f]=inp.value;load(false);}});
+    inp.addEventListener(ev,()=>navigate({{[inp.dataset.f]:inp.value}},false));
   }});
 }}
 
-function params(){{
-  const fields=VIEWS.find(v=>v[0]===view)[2];
-  const p=new URLSearchParams({{view}});
+// The canonical parameter set for a view, given whatever state is known.
+function paramsFor(v,st){{
+  const fields=VIEWS.find(x=>x[0]===v)[2];
+  const p=new URLSearchParams({{view:v}});
   for(const f of fields){{
     const d=FIELDS[f]; if(!d)continue;
-    const v=state[f]!==undefined?state[f]:(viewDef(f)||d.def||'');
-    if(v!=='')p.set(f,v);
+    const val=st[f]!==undefined?st[f]:(viewDefFor(v,f)||d.def||'');
+    if(val!=='')p.set(f,val);
   }}
-  return p.toString();
+  return p;
+}}
+function params(){{ return paramsFor(view,state).toString(); }}
+
+// Every interaction routes through here: work out the next URL, write it, then
+// rebuild the controls and the chart *from* that URL. Nothing renders off a
+// half-updated `state`, so the input values, the chart and the address bar cannot
+// drift apart — which they did when drilling changed the path but left the input
+// showing the old one.
+function navigate(changes,push){{
+  const nextView=changes.view||view;
+  const next=Object.assign({{}},state,changes);
+  delete next.view;
+  syncUrl('?'+paramsFor(nextView,next).toString(),!!push);
+  applyUrl();
+}}
+
+function applyUrl(){{
+  readUrl();        // URL -> view + state
+  buildTabs();
+  buildControls();  // controls now show exactly what the URL says
+  fetchView();      // and so does the chart
 }}
 
 // Folder sizes navigates its own subtree; the churn views filter by path and must
 // also deepen the rollup, which counts folders from the repo root.
 function drillField(){{ return view==='tree'?'subpath':'path'; }}
 window.__drill=target=>{{
-  state[drillField()]=target;
+  const changes={{}};
+  changes[drillField()]=target;
   if(view!=='tree'){{
     const segs=target?target.split('/').filter(Boolean).length:0;
-    state.depth=String(segs+1);
+    changes.depth=String(segs+1);
   }}
-  load(true);   // a drill is a navigation, so Back undoes it
+  navigate(changes,true);   // a drill is a navigation, so Back undoes it
 }};
 
 let inflight=null;
-async function load(push){{
-  syncUrl(!!push);
+async function fetchView(){{
   const url='/api/view?'+params();
   if(inflight)inflight.abort();
   const ac=new AbortController(); inflight=ac;
@@ -606,7 +626,7 @@ async function poll(){{
     el('live').textContent=`live · ${{m.repos.length}} repo${{m.repos.length===1?'':'s'}} · last change ${{m.last_refresh}}`;
     el('dot').classList.remove('stale');
     // A new generation means the daemon folded in new commits; refetch the view.
-    if(gen&&m.generation!==gen)load();
+    if(gen&&m.generation!==gen)fetchView();
     gen=m.generation;
   }}catch(e){{
     el('live').textContent='daemon unreachable';
@@ -614,9 +634,13 @@ async function poll(){{
   }}
 }}
 
-addEventListener('popstate',()=>{{ readUrl(); buildTabs(); buildControls(); load(false); }});
+addEventListener('popstate',applyUrl);
 
-readUrl(); buildTabs(); buildControls(); poll().then(()=>load(false)); setInterval(poll,5000);
+// Read the incoming URL before normalising it, or the canonical form would be
+// computed from the default view and overwrite whatever was linked to.
+readUrl();
+navigate({{}},false);
+poll(); setInterval(poll,5000);
 </script></body></html>"##,
         css = html::CSS,
         js = html::CHART_JS

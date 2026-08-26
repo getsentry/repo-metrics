@@ -66,8 +66,13 @@ done
 PORT="${PORT:-7777}"
 if curl -s -o /dev/null --max-time 2 "localhost:$PORT/" 2>/dev/null; then
   page=$(curl -s "localhost:$PORT/")
-  for fn in readUrl syncUrl popstate scopeHtml drillBar __drill; do
+  for fn in readUrl syncUrl applyUrl navigate popstate scopeHtml drillBar __drill; do
     echo "$page" | grep -q "$fn" || { echo "  FAIL app lost $fn (URL state)"; fail=1; }
+  done
+  # The URL is the single source of truth. Mutating `state` directly and
+  # re-rendering is what let the path input drift out of step with the chart.
+  for bad in 'state\[inp.dataset.f\]=' 'state\[drillField()\]='; do
+    echo "$page" | grep -q "$bad" && { echo "  FAIL app mutates state directly ($bad)"; fail=1; }
   done
   code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:$PORT/?view=hotspots&repo=x&since=90d")
   [ "$code" = "200" ] || { echo "  FAIL app does not serve a query-string URL ($code)"; fail=1; }
