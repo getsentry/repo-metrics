@@ -124,7 +124,7 @@ repo-metrics authors    --repo sentry --since 6m --top 25
 | `folders` | Commits or churn per folder over time |
 | `hotspots` | Which directories are moving fastest |
 | `tree` | Folder sizes at a point in time, as an indented tree or a sunburst |
-| `compare` | Two periods side by side |
+| `compare` | Two periods side by side: totals, then lines churned per directory |
 | `flags` | Weeks where a folder broke out of its own trailing baseline |
 | `assist` | Human vs agent-assisted vs bot over time |
 | `authors` | Who is committing, and whether an agent helped |

@@ -379,6 +379,7 @@ pub fn hotspots(
         ],
         bar_column: Some(1),
         drill: drill,
+        sections: Vec::new(),
         rows,
     }
 }
@@ -401,15 +402,24 @@ pub fn compare(
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
     let mut drill: Vec<Option<String>> = Vec::new();
+    let mut sections: Vec<Section> = vec![Section {
+        start: 0,
+        label: "totals for the whole scope".into(),
+    }];
     let push = |label: String, x: f64, y: f64, rows: &mut Vec<Vec<Cell>>| {
         let d = y - x;
-        let pct = if x > 0.0 { (d / x) * 100.0 } else { 0.0 };
         rows.push(vec![
             cell_text(&label),
             Cell::Int(x as i64),
             Cell::Int(y as i64),
             Cell::Int(d as i64),
-            Cell::Num((pct * 10.0).round() / 10.0),
+            // Growth from nothing has no percentage; the delta column already says
+            // what happened.
+            if x > 0.0 {
+                Cell::Num((((d / x) * 100.0) * 10.0).round() / 10.0)
+            } else {
+                Cell::Empty
+            },
         ]);
     };
 
@@ -452,8 +462,19 @@ pub fn compare(
             .partial_cmp(&(p.2 - p.1).abs())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    if !deltas.is_empty() {
+        sections.push(Section {
+            start: rows.len(),
+            // Say what these rows measure. Every row above names its own metric;
+            // these all share one, and it isn't the same as any of them.
+            label: match &base.path {
+                Some(p) => format!("lines churned by directory, under {p}"),
+                None => "lines churned by directory".into(),
+            },
+        });
+    }
     for (k, x, y) in deltas.into_iter().take(top) {
-        push(format!("  {k}"), x, y, &mut rows);
+        push(k.clone(), x, y, &mut rows);
         drill.push((k != "(root)").then(|| k.clone()));
     }
 
@@ -461,7 +482,7 @@ pub fn compare(
     Ok(Output::Table {
         title: format!("Compare {alab} → {blab}"),
         subtitle: format!(
-            "{} · churn by directory below the summary",
+            "{}",
             range_label(&Filter { since: None, until: None, ..base.clone() }, &repos)
         ),
         source: None,
@@ -475,6 +496,7 @@ pub fn compare(
         ],
         bar_column: None,
         drill: drill,
+        sections,
         rows,
     })
 }
@@ -638,6 +660,7 @@ pub fn flags(
         ],
         bar_column: Some(5),
         drill: Vec::new(),
+        sections: Vec::new(),
         rows,
     }
 }
@@ -709,6 +732,7 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
         ],
         bar_column: Some(3),
         drill: Vec::new(),
+        sections: Vec::new(),
         rows,
     }
 }

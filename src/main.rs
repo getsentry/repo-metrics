@@ -387,6 +387,7 @@ fn main() -> Result<()> {
                 ],
                 bar_column: None,
                 drill: Vec::new(),
+                sections: Vec::new(),
                 rows,
             };
             print!("{}", render_term(&o));

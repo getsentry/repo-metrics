@@ -33,6 +33,11 @@ svg{display:block;width:100%;height:auto;overflow:visible}
 .legend span{display:inline-flex;align-items:center;gap:.4rem}
 .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none}
 .tbl-scroll{overflow-x:auto}
+.sechead th{font-size:.65rem;text-transform:uppercase;letter-spacing:.11em;color:var(--faint);
+  font-weight:600;background:var(--bg);border-top:2px solid var(--faint);
+  border-bottom:1px solid var(--border);padding:.55rem .7rem;text-align:left;position:static}
+tbody.sec:first-of-type .sechead th{border-top:none}
+tbody.sec .sechead:hover{background:transparent}
 table{border-collapse:collapse;width:100%;font-size:.85rem;min-width:520px}
 th,td{text-align:left;padding:.5rem .7rem;border-bottom:1px solid var(--border);white-space:nowrap}
 thead th{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
@@ -211,21 +216,43 @@ function renderTable(el,d){
   if(bc!==null&&bc!==undefined)for(const r of d.rows)max=Math.max(max,Number(r[bc])||0);
   const head=d.columns.map((c,i)=>`<th class="${isNum[i]?'num':''}">${esc(c)}</th>`).join('')
     +((bc!==null&&bc!==undefined)?'<th></th>':'');
-  const body=d.rows.map((r,ri)=>{
+  const rowHtml=(r,ri)=>{
     // Only the first cell of a row that names a directory becomes a link;
     // `compare` mixes summary measures and folders in one table.
     const tds=r.map((v,i)=>{
-      const cell=(i===0&&drill[ri])?drillLink(drill[ri],String(v)):(typeof v==='string'?esc(v):fmt(v));
-      return `<td class="${isNum[i]?'num mono':''}">${cell}</td>`;
+      // Leading spaces mark a sub-measure of the row above. HTML collapses them,
+      // so turn them into real indentation instead of losing the nesting.
+      let indent=0, val=v;
+      if(i===0&&typeof v==='string'){
+        const m=v.match(/^ +/); if(m){indent=m[0].length; val=v.slice(indent);}
+      }
+      const cell=(i===0&&drill[ri])?drillLink(drill[ri],String(val)):(typeof val==='string'?esc(val):fmt(val));
+      const style=indent?` style="padding-left:calc(.7rem + ${indent*0.6}rem)"`:'';
+      return `<td class="${isNum[i]?'num mono':''}"${style}>${cell}</td>`;
     }).join('');
-    let bar='';
+    let cbar='';
     if(bc!==null&&bc!==undefined){
       const pct=max>0?Math.max((Number(r[bc])||0)/max*100,0):0;
-      bar=`<td><div class="barwrap"><div class="cellbar" style="width:${pct}%"></div></div></td>`;
+      cbar=`<td><div class="barwrap"><div class="cellbar" style="width:${pct}%"></div></div></td>`;
     }
-    return `<tr>${tds}${bar}</tr>`;
-  }).join('');
-  el.innerHTML=bar+`<div class="tbl-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    return `<tr>${tds}${cbar}</tr>`;
+  };
+
+  // Sections become separate tbodies with a heading, so whole-scope totals don't
+  // read as the first few rows of the per-directory list.
+  const secs=d.sections||[];
+  const ncol=d.columns.length+((bc!==null&&bc!==undefined)?1:0);
+  let body;
+  if(secs.length){
+    body=secs.map((sc,si)=>{
+      const end=si+1<secs.length?secs[si+1].start:d.rows.length;
+      const inner=d.rows.slice(sc.start,end).map((r,i)=>rowHtml(r,sc.start+i)).join('');
+      return `<tbody class="sec"><tr class="sechead"><th colspan="${ncol}">${esc(sc.label)}</th></tr>${inner}</tbody>`;
+    }).join('');
+  }else{
+    body=`<tbody>${d.rows.map(rowHtml).join('')}</tbody>`;
+  }
+  el.innerHTML=bar+`<div class="tbl-scroll"><table><thead><tr>${head}</tr></thead>${body}</table></div>`;
   wireDrill(el);
 }
 

@@ -47,6 +47,22 @@ $B timeseries --repo sentry --by month --since 1y --overlay none --format json 2
   | python3 -c 'import json,sys; assert "overlay" not in json.load(sys.stdin), "--overlay none still emits one"' \
   || { echo "  FAIL --overlay none"; fail=1; }
 
+# compare puts two different things in one set of columns; they must stay labelled
+# and separated, and the directory rows must say what they measure.
+$B compare 2025-H2 2026-H1 --repo sentry --top 5 --format json 2>/dev/null \
+  | python3 -c '
+import json,sys
+d=json.load(sys.stdin); secs=d.get("sections") or []
+assert len(secs)==2, f"expected two sections, got {len(secs)}"
+assert secs[0]["start"]==0
+assert secs[1]["start"]>0
+assert "churn" in secs[1]["label"], f"directory section unlabelled: {secs[1]["label"]!r}"
+# a percentage change from zero has to be blank, not 0
+for r in d["rows"]:
+    if r[1]==0 and r[2]>0:
+        assert r[4] is None, f"growth from zero reported as {r[4]}"
+' || { echo "  FAIL compare sections"; fail=1; }
+
 # per-human must actually be the raw metric divided by the authors overlay for the
 # same bucket, not an independently computed number that could drift from it.
 python3 - "$B" <<'PYEOF' || { echo "  FAIL per-human division"; fail=1; }

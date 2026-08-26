@@ -23,6 +23,9 @@ pub enum Cell {
     Text(String),
     Num(f64),
     Int(i64),
+    /// No value. A percentage change from zero is undefined, and printing 0 there
+    /// reads as "no change" when the truth is the opposite.
+    Empty,
 }
 
 impl Cell {
@@ -30,12 +33,13 @@ impl Cell {
         match self {
             Cell::Num(n) => *n,
             Cell::Int(i) => *i as f64,
-            Cell::Text(_) => 0.0,
+            Cell::Text(_) | Cell::Empty => 0.0,
         }
     }
     pub fn render(&self) -> String {
         match self {
             Cell::Text(s) => s.clone(),
+            Cell::Empty => "—".into(),
             Cell::Int(i) => group(*i),
             Cell::Num(n) => {
                 if (n - n.round()).abs() < 1e-9 {
@@ -63,6 +67,16 @@ pub fn group(n: i64) -> String {
     } else {
         out
     }
+}
+
+/// A labelled run of rows inside one table. `compare` puts whole-scope totals and
+/// a per-directory breakdown in the same columns; they are different things and
+/// should not read as one continuous list.
+#[derive(Serialize, Clone)]
+pub struct Section {
+    /// Index of the first row belonging to this section.
+    pub start: usize,
+    pub label: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -177,6 +191,9 @@ pub enum Output {
         /// measures and directories in one table.
         #[serde(skip_serializing_if = "Vec::is_empty")]
         drill: Vec<Option<String>>,
+        /// Row groups. Empty means one undivided table.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        sections: Vec<Section>,
         rows: Vec<Vec<Cell>>,
     },
     Tree {
@@ -402,6 +419,7 @@ pub fn render_term(o: &Output) -> String {
             columns,
             rows,
             bar_column,
+            sections,
             ..
         } => {
             let ncol = columns.len();
@@ -445,6 +463,12 @@ pub fn render_term(o: &Output) -> String {
                 .unwrap_or(0.0);
 
             for (ri, r) in cells.iter().enumerate() {
+                if let Some(sec) = sections.iter().find(|s| s.start == ri) {
+                    if ri > 0 {
+                        out.push('\n');
+                    }
+                    out.push_str(&format!("  {}\n", st.dim(&sec.label.to_uppercase())));
+                }
                 let line: Vec<String> = r
                     .iter()
                     .enumerate()

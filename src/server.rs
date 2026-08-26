@@ -555,10 +555,10 @@ function buildControls(){{
     const d=FIELDS[f]; if(!d)return '';
     const val=state[f]!==undefined?state[f]:(viewDef(f)||d.def||'');
     if(d.t==='select'){{
-      let opts=(f==='repo'?(state.__repos||[]).slice():d.opts);
-      // Keep an unknown repo from the URL visible rather than silently showing
-      // "all repos" while still querying for it.
-      if(f==='repo'&&val&&!opts.includes(val))opts=[val].concat(opts);
+      let opts=(f==='repo'?(state.__repos||[]).slice():d.opts.slice());
+      // A value from the URL that isn't one of the offered options still has to be
+      // shown, or the control displays one thing while the chart uses another.
+      if(val!==''&&!opts.includes(String(val)))opts=[String(val)].concat(opts);
       const list=(f==='repo'?['<option value="">all repos</option>']:[]).concat(
         opts.map(o=>`<option value="${{esc(o)}}"${{String(val)===String(o)?' selected':''}}>${{esc(o)}}</option>`));
       return `<label>${{d.label}}<select data-f="${{f}}">${{list.join('')}}</select></label>`;
