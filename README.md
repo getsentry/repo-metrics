@@ -1,99 +1,108 @@
 # repo-metrics
 
-Repository metrics and visualizations read straight from git. No warehouse, no cloud
-project, no credentials — one binary, one local cache, and a server you can run when
-you want the views to be interactive.
+Charts and metrics for git repositories, read straight from the repo.
 
-This is the local counterpart to a GCP pipeline design (BigQuery + Cloud Run + Cloud
-Scheduler + Firestore + IAP). The analysis is the same; where it runs is not.
-
-## Why local works
-
-Measured on this machine against `getsentry/sentry` — 108,973 commits, 780 MB of
-`.git`, 20,594 files at HEAD:
-
-| Operation | Time |
-|---|---|
-| Full history ingest (metadata + numstat, sharded across cores) | **10.6 s** |
-| Incremental ingest, one day of commits | **0.1 s** |
-| Any view over the full cache | **1–5 ms** |
-| Point-in-time tree snapshot (`git ls-tree -r --long`) | **0.08 s** |
-| Cache on disk, sentry + seer together | **23 MB** |
-
-563,383 file-change rows for sentry, 25,609 for seer. That is not a warehouse — it is
-a file that fits in memory twice over. Most of the machinery a remote pipeline needs
-(bundle caches, checkpoints, staging tables, `MERGE` dedup, partition-filter guards,
-schedulers, load balancers) exists to avoid re-doing a ten-second computation.
+Ingest parses history once into a local cache. After that every view is a query
+against that cache, fast enough to be interactive. There is no server to deploy
+and nothing to configure, beyond the GitHub CLI if you want `sync` to fetch repos
+for you.
 
 ## Install
 
 ```bash
 cargo build --release
-cp target/release/repo-metrics ~/.local/bin/     # or anywhere on PATH
+cp target/release/repo-metrics ~/.local/bin/
 ```
 
-## Getting the repos
-
-`sync` is the front door: pick a GitHub org, choose repos from an interactive list,
-and clone them in parallel — then re-run it any time to bring them all up to date.
+## Quick start
 
 ```bash
-repo-metrics sync                    # prompts for the org and a folder
-repo-metrics sync getsentry          # straight to the picker
-repo-metrics sync getsentry --ingest # ...and load them into the metrics cache after
+repo-metrics sync getsentry --ingest    # pick repos, clone them, load them
+repo-metrics hotspots --since 90d       # what's been moving
+repo-metrics serve                      # browse it all in a browser
 ```
 
-It guesses where checkouts belong (`~/code`, then `~/src`, `~/dev`, `~/Projects`, …)
-and offers that as the default rather than assuming it.
+## Getting repos
 
-The list is ordered by **most recently pushed**, not alphabetically — on an org with
-1,274 repos, alphabetical buries everything anyone is actually working on. Other
-orderings via `--sort`:
-
-| `--sort` | Order |
-|---|---|
-| `recent` *(default)* | Most recently pushed first |
-| `active` | Size on disk decayed by time since last push — big and still moving |
-| `stars` / `size` / `name` | As named |
-
-`active` is a proxy, and worth knowing why: GitHub's org listing carries no commit
-count, and the endpoint that does costs one request per repo — 1,274 requests for an
-org this size. Repo size stands in for accumulated history, decayed by how long since
-anyone pushed.
-
-In the picker: type to filter, <kbd>space</kbd> toggles, <kbd>^a</kbd> selects
-everything matching the filter, <kbd>^x</kbd> clears, <kbd>⏎</kbd> confirms,
-<kbd>esc</kbd> backs out. **Repos already on disk start checked**, so the default
-action on a populated folder is "keep what I have current". You get a total download
-size before anything starts.
-
-Archived repos and forks are hidden unless you pass `--archived` / `--forks`. Listings
-are cached for an hour (`--refresh` to bypass); the first 200 repos are fetched by
-default, `--limit 0` gets all of them.
-
-### Updating is deliberately timid
-
-For repos you already have, `sync` always fetches, and then fast-forwards **only** when
-it is unambiguously safe: clean tree, a tracking branch, and no local commits. Anything
-else is fetched and reported, never merged.
-
-```
-  = getsentry/relay          up to date
-  ↑ getsentry/sentry         fast-forwarded 14 commits
-  ! getsentry/relay           fetched; 3 behind, working tree dirty
-  ! getsentry/snuba          fetched; 1 local commit not pushed, 2 behind
-  x getsentry/private-thing  failed: Repository not found
-```
-
-It never rebases, never force-updates, never discards a dirty tree, and never writes
-over a path that exists but is not a checkout. `--dry-run` shows the plan and stops.
-
-## Use
+`sync` lists an org's repositories, lets you choose from them, and clones the
+selection in parallel. Run it again later to bring everything up to date.
 
 ```bash
-repo-metrics ingest ~/code/sentry ~/code/seer    # full first time, incremental after
-repo-metrics repos                               # what's in the cache
+repo-metrics sync                       # asks for the org and a folder
+repo-metrics sync getsentry
+repo-metrics sync getsentry --ingest
+```
 
+If you don't pass `--dir` it looks for `~/code`, `~/src`, `~/dev`, `~/Projects`
+and a few others, and offers the first one that exists.
+
+The list is ordered by most recent push. Large orgs have hundreds of repos and an
+alphabetical list puts the interesting ones nowhere near the top. `--sort active`
+weighs repository size against how long since anyone pushed, for things that are
+both substantial and still moving. `--sort stars`, `size` and `name` also work.
+
+`active` is an approximation. GitHub's org listing has no commit count in it, and
+the endpoint that does costs a request per repository, so size stands in for how
+much history has accumulated.
+
+In the picker, type to filter and press space to check something. `^a` checks
+everything matching the current filter, `^x` clears, enter confirms, esc backs
+out. Repos you already have are checked when the picker opens, so the default
+action in a folder you've used before is to refresh what's there. You get a total
+download size before anything starts.
+
+Archived repos and forks are hidden; pass `--archived` or `--forks` to include
+them. Listings are cached for an hour, `--refresh` skips the cache. The first 200
+repos are fetched by default and `--limit 0` gets all of them.
+
+### Updating existing checkouts
+
+`sync` always fetches. It fast-forwards only when the working tree is clean, the
+branch tracks an upstream, and there are no local commits. In any other case it
+reports what it found and leaves the repository alone.
+
+```
+= getsentry/relay          up to date
+↑ getsentry/sentry         fast-forwarded 14 commits
+! getsentry/relay           fetched; 3 behind, working tree dirty
+! getsentry/snuba          fetched; 1 local commit not pushed, 2 behind
+x getsentry/private-thing  failed: Repository not found
+```
+
+It never rebases, never force-updates, and never writes over a path that already
+exists but isn't a checkout. `--dry-run` prints the plan and changes nothing.
+
+## Keeping the cache warm
+
+`refresh` fetches every repository already in the cache and folds new commits in.
+It's incremental, so a repo whose HEAD hasn't moved costs almost nothing.
+
+```bash
+repo-metrics refresh
+repo-metrics refresh --dir ~/code       # also pick up newly cloned repos there
+```
+
+`schedule` installs a macOS LaunchAgent that runs `refresh` on a timer, so the
+cache is current whenever you go to use it.
+
+```bash
+repo-metrics schedule --interval 30m    # install
+repo-metrics schedule --dir ~/code      # and watch a folder for new checkouts
+repo-metrics schedule --status
+repo-metrics schedule --now             # run it immediately
+repo-metrics schedule --logs
+repo-metrics schedule --remove
+```
+
+The job runs at low priority, logs one line per run to
+`~/.cache/repo-metrics/refresh.log`, and won't start a second run while one is
+still going. Point it at a binary somewhere stable rather than `target/release`,
+or a rebuild will break it. Linux has no equivalent installer; use a systemd timer
+or cron entry that runs `repo-metrics refresh`.
+
+## Views
+
+```bash
 repo-metrics timeseries --repo sentry --by week --split assist
 repo-metrics folders    --repo sentry --depth 2 --metric churn --since 2y
 repo-metrics hotspots   --repo sentry --since 90d --top 20
@@ -105,120 +114,149 @@ repo-metrics assist     --repo sentry --by month
 repo-metrics authors    --repo sentry --since 6m --top 25
 ```
 
-Every view takes `--repo`, `--since`, `--until`, `--path`, and `--format`.
-Dates accept `YYYY-MM-DD`, `90d`, `12w`, `6m`, `2y`, or a bare year; `compare`
-additionally takes `2025-H1`, `2025-Q3`, `2024`, or `start:end`.
+| Command | Answers |
+|---|---|
+| `timeseries` | Commits over time, split by assist kind, tool, author or language |
+| `folders` | Commits or churn per folder over time |
+| `hotspots` | Which directories are moving fastest |
+| `tree` | Folder sizes at a point in time, one level at a time |
+| `radial` | The same snapshot as a sunburst |
+| `compare` | Two periods side by side |
+| `flags` | Weeks where a folder broke out of its own trailing baseline |
+| `assist` | Human vs agent-assisted vs bot over time |
+| `authors` | Who is committing, and whether an agent helped |
 
-### Output formats
+Every view takes `--repo`, `--since`, `--until` and `--path`. Dates can be
+`YYYY-MM-DD`, `90d`, `12w`, `6m`, `2y` or a year. `compare` also understands
+`2025-H1`, `2025-Q3` and `start:end`.
+
+`repos` lists what's in the cache.
+
+### Output
 
 ```bash
---format table            # terminal, with sparklines and in-row bars (default)
---format json             # pipe it anywhere
---format html -o out.html # one self-contained file; no network at render time
+--format table              # terminal, with sparklines and inline bars (default)
+--format json               # for piping
+--format html -o out.html   # a single file with the data inlined
 ```
 
-### Interactive server
+The HTML is self-contained and makes no network requests, so it survives being
+committed, attached to a pull request or emailed.
+
+### Server
 
 ```bash
-repo-metrics serve                    # foreground, opens a browser
-repo-metrics serve --daemon           # detach; logs to the cache dir
+repo-metrics serve
+repo-metrics serve --daemon
 repo-metrics serve --status
 repo-metrics serve --stop
 ```
 
-Binds **127.0.0.1 only** — it serves the full contents of your private repositories
-and has no authentication of its own.
+Holds the cache in memory and answers the same queries over HTTP, which makes the
+filters feel direct rather than like submitting a form. It re-checks each repo's
+HEAD periodically and folds in new commits, so a page left open follows the repo
+as you work. Every view links its commit back to the forge.
 
-The daemon re-checks each repo's HEAD every 30s (`--refresh N`, `0` disables) and
-folds in new commits incrementally, so an open page follows the repo as you work.
-Every view links its commit out to the forge.
+It binds to 127.0.0.1 only. It serves the full contents of your private
+repositories and has no authentication of its own.
 
-## Views
+## How things are counted
 
-| Command | What it answers |
-|---|---|
-| `timeseries` | Commits over time, splittable by assist kind, tool, author, or language |
-| `folders` | Commits or churn by folder over time, as stacked bands |
-| `hotspots` | Fastest-moving directories, ranked by churn |
-| `tree` | Folder sizes at a point in time, one level at a time |
-| `radial` | Full-depth tree at a point in time, as a sunburst |
-| `compare` | Two periods side by side, as a delta |
-| `flags` | Weeks where a folder broke out of its own trailing baseline |
-| `assist` | Human vs agent-assisted vs bot, over time |
-| `authors` | Who is committing, and whether an agent helped |
+Author date, not committer date. Rebases, squash-merges and cherry-picks all
+rewrite the committer date, which would move a week of work onto the day it
+landed.
 
-`sync` is documented above; `repos` lists what is in the cache.
+Merges contribute no file rows. `git log --numstat` prints nothing for a merge
+unless you force it, and forcing it double-counts every line already attributed
+to the branch commits. Merges are excluded from churn.
 
-## Decisions that change the numbers
-
-**Author date, not committer date.** Rebases, squash-merges and cherry-picks rewrite
-the committer date, collapsing a week of work onto the day it landed.
-
-**Merges contribute no file rows.** `git log --numstat` emits nothing for a merge
-unless forced, which would double-count every line already attributed to the branch
-commits. Merges are excluded from churn aggregates.
-
-**Binary files are recorded, not skipped.** They report `-` for both columns and are
+Binary files are recorded, not skipped. They report `-` for both columns and are
 stored with null line counts.
 
-**Tree snapshots are taken on demand, never stored.** `ls-tree --long` is ~0.1 s, so a
-snapshot table would be the largest thing in the system in exchange for very little.
-It also reports **bytes**, not lines — there is no line count anywhere in git's tree
-data, and true SLOC would mean reading every blob.
+Renames count against the new path, so a rename doesn't look like a directory
+that churned and then vanished.
 
-**Renames count against the new path**, so a rename does not read as a directory that
-churns and then vanishes.
+Tree snapshots are taken on demand rather than stored. `ls-tree` is quick enough
+that keeping a snapshot table would make it the largest thing in the cache for
+very little benefit. It reports bytes, not lines: git's tree data has no line
+count in it, and computing real SLOC would mean reading every blob.
 
-### Authorship is derived on read
+## Authorship
 
-The cache stores raw author and co-author strings and nothing else. Human / agent /
-bot labels are computed at query time against a rule table, so a newly-recognised
-agent is a config edit and a re-run, not a re-ingest.
+The cache stores raw author and co-author strings. Labels are worked out at query
+time, so recognising a new tool is a config change and a re-run rather than a
+re-ingest.
 
-The rules that hold up:
+Commits fall into four kinds:
 
-- **The coding agents are co-authors, not authors.** Claude, Codex and Cursor sit in
-  `Co-authored-by` trailers while the author stays the human who ran them. Classifying
-  on the author field alone reports almost no agent activity.
-- **Key on the numeric GitHub user id.** Bots get renamed — id `157164994` appears in
-  its history under four different names.
-- **`@users.noreply.github.com` is not a bot signal.** It is the default privacy
-  address for ordinary accounts; treating it as one files most of the team as robots.
-- **`agent` and `infra` are different.** Dependabot and getsantry are bots, but they
-  are not AI coding assistants. Conflating them roughly quadruples the reported
-  agent-assisted share in 2025.
+| Kind | Means |
+|---|---|
+| `human` | A person wrote it, with no agent credited |
+| `agent_assisted` | A person authored it and credited an agent as co-author |
+| `agent` | No human author: an agent opened the commit itself, or a bot landed an agent's work |
+| `bot` | Automation that doesn't write code: dependency bumps, releases, reverts, CI, scanners |
 
-Override or extend the table at `~/.config/repo-metrics/identities.toml`:
+Several things this gets right that a naive version doesn't:
+
+Agents show up both ways. Claude, Codex and Cursor usually sit in `Co-authored-by`
+trailers while the author stays the person who ran them, so looking only at the
+author field finds almost no agent activity. But agents also open pull requests
+under their own identity, and treating every `[bot]` as automation files that work
+alongside Dependabot.
+
+Not every bot is a bot in the same sense. A revert bot and a license-header bumper
+are automation; Seer and Junior are writing code. They're counted separately.
+
+Identities are keyed on the numeric GitHub user id where there is one, because
+bots get renamed. One id shows up in its history under four different names.
+
+`@users.noreply.github.com` is not a bot signal. It's the default privacy address
+for ordinary accounts, and treating it as one classifies most of a team as robots.
+
+Coding agents and infrastructure bots are counted separately. Dependabot and CI
+bots are not AI assistants, and folding them together roughly quadruples the
+reported agent-assisted share of a busy year.
+
+Add your own rules in `~/.config/repo-metrics/identities.toml`:
 
 ```toml
 [[identity]]
 match_kind  = "email_domain"   # github_user_id | email | email_domain | name_prefix
 match_value = "windsurf.com"
 tool        = "windsurf"
-kind        = "agent"          # agent (writes code) | infra (deps, reverts)
+kind        = "agent"          # agent writes code, infra does chores
 ```
 
-More specific rules win: an id beats an email, an email beats a domain, a domain beats
-a name prefix, and a longer prefix beats a shorter one.
+More specific rules win. An id beats an email, an email beats a domain, a domain
+beats a name prefix, and a longer prefix beats a shorter one.
+
+## Development
+
+```bash
+cargo build --release
+./scripts/check.sh      # checks command output, not just exit codes
+```
 
 ## Files
 
 ```
-~/.cache/repo-metrics/cache.bin     parsed history (bincode, interned strings)
-~/.cache/repo-metrics/serve.pid     daemon pid
-~/.cache/repo-metrics/serve.log     daemon output
-~/.config/repo-metrics/identities.toml   optional identity overrides
+~/.cache/repo-metrics/cache.bin      parsed history
+~/.cache/repo-metrics/refresh.log    scheduled job output
+~/.cache/repo-metrics/serve.log      server output
+~/.config/repo-metrics/identities.toml
 ```
 
-Cache is keyed on a parser version; bumping it re-ingests from scratch, which is ten
-seconds and therefore not an event worth engineering around. Set `REPO_METRICS_CACHE`
-to relocate it.
+Set `REPO_METRICS_CACHE` to move the cache. It's keyed on a parser version, and
+bumping that re-ingests from scratch, which is cheap enough not to plan around.
 
 ## Limits
 
-- **Needs the repos cloned.** `--numstat` diffs blob contents, so a blobless partial
-  clone would lazily refetch and be far slower. Budget the full `.git`.
-- **No shared URL.** The server is loopback-only. Use `--format html` for something
-  you can hand to someone.
-- **Nothing is scheduled.** Freshness is whenever you last ran it, or whatever the
-  daemon's refresh interval catches.
+You need the repositories cloned. `--numstat` diffs blob contents, so a blobless
+or shallow clone would refetch during ingest and end up slower than cloning
+properly once.
+
+The server is loopback-only, so there's no link to send anyone. Use
+`--format html` for something you can hand over.
+
+Freshness is whenever you last ran `ingest` or `refresh`, or whatever the
+scheduled job has picked up.

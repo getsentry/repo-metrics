@@ -136,7 +136,7 @@ fn local_state(root: &Path, r: &Repo) -> Local {
     Local::Present
 }
 
-enum Outcome {
+pub enum Outcome {
     Cloned(f64),
     UpToDate,
     FastForwarded(u64),
@@ -145,7 +145,14 @@ enum Outcome {
 }
 
 impl Outcome {
-    fn glyph(&self) -> &'static str {
+    /// Did anything actually move? Used to decide whether a re-ingest is worth it.
+    pub fn changed(&self) -> bool {
+        matches!(self, Outcome::Cloned(_) | Outcome::FastForwarded(_))
+    }
+}
+
+impl Outcome {
+    pub fn glyph(&self) -> &'static str {
         match self {
             Outcome::Cloned(_) => "+",
             Outcome::UpToDate => "=",
@@ -154,7 +161,7 @@ impl Outcome {
             Outcome::Failed(_) => "x",
         }
     }
-    fn text(&self) -> String {
+    pub fn text(&self) -> String {
         match self {
             Outcome::Cloned(s) => format!("cloned in {s:.1}s"),
             Outcome::UpToDate => "up to date".into(),
@@ -190,11 +197,15 @@ fn clone_one(root: &Path, r: &Repo, ssh: bool) -> Outcome {
     }
 }
 
+fn update_one(root: &Path, r: &Repo) -> Outcome {
+    update_checkout(&root.join(&r.name))
+}
+
 /// Fetches, then fast-forwards only when it is unambiguously safe: a clean tree, a
 /// tracking branch, and no local commits. Anything else is reported and left alone —
-/// this command should never be able to lose someone's work.
-fn update_one(root: &Path, r: &Repo) -> Outcome {
-    let dir = root.join(&r.name);
+/// nothing here should ever be able to lose someone's work.
+pub fn update_checkout(dir: &Path) -> Outcome {
+    let dir = dir.to_path_buf();
     if let Err(e) = git(&dir, &["fetch", "--prune", "--quiet"]) {
         return Outcome::Failed(e.to_string().lines().last().unwrap_or("fetch failed").into());
     }

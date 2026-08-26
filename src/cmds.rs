@@ -60,7 +60,12 @@ fn split_values(r: &Resolved, split: Split, m: Metric, path: &Option<String>) ->
             let v = metric_value(r, m, path);
             if r.tools.is_empty() {
                 vec![(
-                    if r.assist == AssistKind::Bot { "bot" } else { "none" }.to_string(),
+                    match r.assist {
+                        AssistKind::Bot => "bot",
+                        AssistKind::Agent => "agent",
+                        _ => "none",
+                    }
+                    .to_string(),
                     v,
                 )]
             } else {
@@ -311,7 +316,9 @@ pub fn compare(
     push("lines removed".into(), sa.2, sb.2, &mut rows);
     push("files touched".into(), sa.3, sb.3, &mut rows);
     push("distinct authors".into(), sa.4, sb.4, &mut rows);
-    push("agent-assisted commits".into(), sa.5, sb.5, &mut rows);
+    push("commits an agent wrote".into(), sa.5, sb.5, &mut rows);
+    push("  agent-assisted".into(), sa.6, sb.6, &mut rows);
+    push("  agent-authored".into(), sa.7, sb.7, &mut rows);
 
     // Then the folders that moved most between the two windows.
     let ra: HashMap<String, f64> = rollup_dirs(cache, ids, &fa, depth)
@@ -363,9 +370,11 @@ pub fn compare(
     })
 }
 
-fn summarize(cache: &Cache, ids: &Identities, f: &Filter) -> (f64, f64, f64, f64, f64, f64) {
+#[allow(clippy::type_complexity)]
+fn summarize(cache: &Cache, ids: &Identities, f: &Filter) -> (f64, f64, f64, f64, f64, f64, f64, f64) {
     let repos = select_repos(cache, f);
     let (mut commits, mut added, mut removed, mut files, mut agent) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    let (mut assisted, mut authored) = (0.0, 0.0);
     let mut authors = std::collections::HashSet::new();
     for r in &repos {
         for res in resolve(r, ids, f, false) {
@@ -382,13 +391,27 @@ fn summarize(cache: &Cache, ids: &Identities, f: &Filter) -> (f64, f64, f64, f64
             if hit {
                 commits += 1.0;
                 authors.insert((r.name.clone(), res.commit.author));
-                if res.assist == AssistKind::AgentAssisted {
+                if res.assist.is_agent() {
                     agent += 1.0;
+                }
+                match res.assist {
+                    AssistKind::AgentAssisted => assisted += 1.0,
+                    AssistKind::Agent => authored += 1.0,
+                    _ => {}
                 }
             }
         }
     }
-    (commits, added, removed, files, authors.len() as f64, agent)
+    (
+        commits,
+        added,
+        removed,
+        files,
+        authors.len() as f64,
+        agent,
+        assisted,
+        authored,
+    )
 }
 
 // -------------------------------------------------------- anomalous periods
@@ -593,7 +616,7 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
     let names: Vec<String> = AssistKind::all().iter().map(|a| a.label().to_string()).collect();
     let series = build_series(&buckets, &ax, &names);
     Output::Series {
-        title: "Human vs agent-assisted vs bot".into(),
+        title: "Authorship over time".into(),
         subtitle: range_label(f, &repos),
         source: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),

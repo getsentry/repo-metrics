@@ -5,6 +5,7 @@ use crate::identity::Identities;
 use crate::ingest;
 use crate::model::*;
 use crate::output::Output;
+use crate::proc::{pid_alive, signal};
 use crate::query::*;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
@@ -37,24 +38,14 @@ fn read_pid() -> Option<i32> {
         .and_then(|s| s.trim().parse::<i32>().ok())
 }
 
-/// `kill -0` is the portable "is this pid alive" check; it sends no signal.
-fn alive(pid: i32) -> bool {
-    unsafe { libc_kill(pid, 0) == 0 }
-}
-
-// Avoids pulling in the whole libc crate for two calls.
-extern "C" {
-    #[link_name = "kill"]
-    fn libc_kill(pid: i32, sig: i32) -> i32;
-}
 
 pub fn run(port: u16, daemon: bool, stop: bool, status: bool, refresh: u64, no_open: bool) -> Result<()> {
     std::fs::create_dir_all(cache_dir())?;
 
     if stop {
         match read_pid() {
-            Some(pid) if alive(pid) => {
-                unsafe { libc_kill(pid, 15) };
+            Some(pid) if pid_alive(pid) => {
+                signal(pid, 15);
                 std::fs::remove_file(pid_file()).ok();
                 println!("stopped repo-metrics daemon (pid {pid})");
             }
@@ -64,7 +55,7 @@ pub fn run(port: u16, daemon: bool, stop: bool, status: bool, refresh: u64, no_o
     }
     if status {
         match read_pid() {
-            Some(pid) if alive(pid) => println!("running (pid {pid}) — log: {}", log_file().display()),
+            Some(pid) if pid_alive(pid) => println!("running (pid {pid}) — log: {}", log_file().display()),
             _ => println!("not running"),
         }
         return Ok(());
@@ -74,7 +65,7 @@ pub fn run(port: u16, daemon: bool, stop: bool, status: bool, refresh: u64, no_o
     let is_child = std::env::var("REPO_METRICS_DAEMON_CHILD").is_ok();
     if !is_child {
         if let Some(pid) = read_pid() {
-            if alive(pid) {
+            if pid_alive(pid) {
                 bail!(
                     "a daemon is already running (pid {pid}); use --stop first, or a different --port"
                 );

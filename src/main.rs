@@ -7,7 +7,10 @@ mod ingest;
 mod model;
 mod output;
 mod picker;
+mod proc;
 mod query;
+mod refresh;
+mod schedule;
 mod server;
 mod sync;
 
@@ -232,6 +235,48 @@ enum Cmd {
         #[arg(long)]
         ingest: bool,
     },
+    /// Fetch every known repo and fold new commits into the cache
+    Refresh {
+        /// Also pick up any git checkouts directly inside this folder
+        #[arg(long)]
+        dir: Option<String>,
+        /// Concurrent fetches
+        #[arg(long, short = 'j', default_value = "8")]
+        jobs: usize,
+        /// Only print the one-line summary
+        #[arg(long, short = 'q')]
+        quiet: bool,
+        /// Re-ingest without fetching first
+        #[arg(long = "no-fetch")]
+        no_fetch: bool,
+    },
+    /// Install a macOS LaunchAgent that runs `refresh` in the background
+    Schedule {
+        /// How often: 30m, 2h, 1d, or seconds
+        #[arg(long, default_value = "30m")]
+        interval: String,
+        /// Folder to watch for newly cloned repos
+        #[arg(long)]
+        dir: Option<String>,
+        /// Concurrent fetches in the scheduled job
+        #[arg(long, short = 'j', default_value = "4")]
+        jobs: usize,
+        /// Uninstall it
+        #[arg(long)]
+        remove: bool,
+        /// Report whether it is installed and running
+        #[arg(long)]
+        status: bool,
+        /// Run it right now
+        #[arg(long)]
+        now: bool,
+        /// Show recent output
+        #[arg(long)]
+        logs: bool,
+        /// Skip the run that would otherwise happen at login
+        #[arg(long = "no-run-at-load")]
+        no_run_at_load: bool,
+    },
     /// Run a local server so the views are interactive
     Serve {
         #[arg(long, default_value = "7777")]
@@ -425,6 +470,23 @@ fn main() -> Result<()> {
                 include_forks,
                 dry_run,
                 ingest,
+            })?;
+        }
+        Cmd::Refresh { dir, jobs, quiet, no_fetch } => {
+            refresh::run(refresh::Opts { dir, jobs, quiet, no_fetch })?;
+        }
+        Cmd::Schedule {
+            interval, dir, jobs, remove, status, now, logs, no_run_at_load,
+        } => {
+            schedule::run(schedule::Opts {
+                interval,
+                dir,
+                jobs,
+                remove,
+                status,
+                now,
+                logs,
+                at_load: !no_run_at_load,
             })?;
         }
         Cmd::Serve { port, daemon, stop, status, refresh, no_open } => {
