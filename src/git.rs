@@ -57,8 +57,57 @@ pub fn is_repo(path: &Path) -> bool {
     git(path, &["rev-parse", "--git-dir"]).is_ok()
 }
 
-pub fn head_sha(repo: &Path) -> Result<String> {
-    Ok(git(repo, &["rev-parse", "HEAD"])?.trim().to_string())
+/// The ref every metric is read from.
+///
+/// Deliberately not HEAD. A checkout is a working state — a feature branch, a
+/// detached HEAD, a half-finished rebase — and ingesting it folds private commits
+/// into charts that claim to describe the project. Reading the default branch makes
+/// the numbers independent of whatever the working copy happens to be doing.
+///
+/// `origin/HEAD` is the authoritative answer where it exists. The rest of the ladder
+/// covers clones made without it and repos that have no remote at all.
+pub fn default_ref(repo: &Path) -> String {
+    if let Ok(s) = git(
+        repo,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    ) {
+        let s = s.trim();
+        if !s.is_empty() {
+            return s.to_string();
+        }
+    }
+    for r in [
+        "refs/remotes/origin/main",
+        "refs/remotes/origin/master",
+        "refs/heads/main",
+        "refs/heads/master",
+    ] {
+        if git(repo, &["rev-parse", "--verify", "--quiet", r]).is_ok() {
+            return r.to_string();
+        }
+    }
+    // Nothing conventional to find. A repo with no remote and no main/master still
+    // has to chart something, so fall back to the checkout.
+    "HEAD".to_string()
+}
+
+/// Resolve a ref to the commit it names.
+pub fn sha_of(repo: &Path, r: &str) -> Result<String> {
+    Ok(git(repo, &["rev-parse", &format!("{r}^{{commit}}")])?
+        .trim()
+        .to_string())
+}
+
+/// The commit the default branch points at.
+pub fn default_sha(repo: &Path) -> Result<String> {
+    sha_of(repo, &default_ref(repo))
+}
+
+/// Whether `a` is reachable from `b`. A cached checkpoint that fails this test
+/// describes history that has since been rewritten, and every commit ingested on
+/// top of it is now unverifiable.
+pub fn is_ancestor(repo: &Path, a: &str, b: &str) -> bool {
+    git(repo, &["merge-base", "--is-ancestor", a, b]).is_ok()
 }
 
 /// Prefer the origin remote's path (`getsentry/sentry`) so charts are labelled the
@@ -106,10 +155,11 @@ pub fn rev_list(repo: &Path, range: &str) -> Result<Vec<String>> {
     Ok(out.lines().map(|s| s.to_string()).collect())
 }
 
-/// Newest commit at or before `date`, for point-in-time tree snapshots.
-pub fn rev_before(repo: &Path, date: &str) -> Result<Option<String>> {
+/// Newest commit at or before `date`, for point-in-time tree snapshots. Walks back
+/// from `from` — the branch the cache was built from, not the checkout.
+pub fn rev_before(repo: &Path, date: &str, from: &str) -> Result<Option<String>> {
     let before = format!("--before={date}");
-    let out = git(repo, &["rev-list", "-1", &before, "HEAD"])?;
+    let out = git(repo, &["rev-list", "-1", &before, from])?;
     let s = out.trim();
     Ok(if s.is_empty() {
         None

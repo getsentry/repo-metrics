@@ -4,9 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Bump when the parser changes shape. A mismatch re-ingests from scratch, which is
-/// seconds of work — so there is no backfill problem to engineer around.
-pub const PARSER_VERSION: u32 = 2;
+/// Bump when the parser changes shape, or when the set of commits we ingest changes.
+/// A mismatch re-ingests from scratch, which is seconds of work — so there is no
+/// backfill problem to engineer around.
+///
+/// 3: read the default branch instead of HEAD. Caches written before this may hold
+/// commits from whatever branch happened to be checked out at ingest time, and
+/// nothing short of a re-read can tell those apart from real history.
+pub const PARSER_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Cache {

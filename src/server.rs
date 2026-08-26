@@ -163,8 +163,10 @@ fn group_u(n: usize) -> String {
     crate::output::group(n as i64)
 }
 
-/// Polls each repo's HEAD and folds in only what is new. An incremental pass is
-/// well under a second, so this can run often without being noticed.
+/// Polls each repo's default branch and folds in only what is new. An incremental
+/// pass is well under a second, so this can run often without being noticed.
+/// Watching the branch rather than the checkout means switching branches locally
+/// neither triggers a reload nor changes a single number.
 fn spawn_refresher(state: Arc<State>, secs: u64) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(secs));
@@ -178,7 +180,7 @@ fn spawn_refresher(state: Arc<State>, secs: u64) {
         let mut changed = false;
         for (path, known_head) in paths {
             let p = Path::new(&path);
-            let head = match git::head_sha(p) {
+            let head = match git::default_sha(p) {
                 Ok(h) => h,
                 Err(_) => continue,
             };
@@ -487,8 +489,6 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 .dot{{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:.35rem}}
 .dot.stale{{background:var(--c1)}}
 .hide{{display:none!important}}
-.caveat{{max-width:70ch;margin:1.4rem 0 0;font-size:.8rem;line-height:1.6;color:var(--faint);
-  border-left:2px solid var(--border);padding-left:.9rem}}
 </style></head>
 <body><div class="wrap">
 <h1>repo-metrics</h1>
@@ -498,7 +498,7 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 <div class="bar" id="controls"></div>
 
 <div class="card"><div id="chart"><div class="empty">loading…</div></div></div>
-<p class="caveat" id="caveat" hidden></p>
+{caveat}
 <div class="status">
   <span><span class="dot" id="dot"></span><span id="live">connecting</span></span>
   <span id="timing"></span>
@@ -649,14 +649,6 @@ async function fetchView(){{
     window.__rerender();
     el('scope').innerHTML=scopeHtml(d);
     el('src').innerHTML=sourceHtml(d);
-    // Only where a human count is doing work in the numbers.
-    const human=!!(d.overlay||d.rate);
-    el('caveat').hidden=!human;
-    if(human)el('caveat').textContent=
-      'Two things to weigh before reading too much into these numbers: identities are keyed on '
-      +'email, so someone committing under both a real address and a GitHub noreply counts twice, '
-      +'and the denominator includes anyone who touched the repo even once. Both biases are stable '
-      +'over time, so the trend holds even if the absolute level is soft.';
     el('timing').textContent=`${{d.title}} · ${{d.ms.toFixed(0)}} ms`;
     // Bookmarks take their name from the title, so make it say what the view is.
     const scope=state.repo?` · ${{state.repo}}`:'';
@@ -691,6 +683,7 @@ navigate({{}},false);
 poll(); setInterval(poll,5000);
 </script></body></html>"##,
         css = html::CSS,
-        js = html::CHART_JS
+        js = html::CHART_JS,
+        caveat = html::CAVEAT_HTML
     )
 }
