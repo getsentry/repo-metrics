@@ -1,0 +1,8 @@
+# Pinned so CI and a working copy agree. Denying clippy warnings against a
+# floating `stable` means a release of Rust can fail the build with no change to
+# the code — which is exactly what happened the first time CI ran here.
+# Bumping this is a deliberate edit, and fixing whatever new lints come with it
+# is part of that change.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]

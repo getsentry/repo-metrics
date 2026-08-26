@@ -95,9 +95,9 @@ pub fn sort_repos(repos: &mut [Repo], by: Sort) {
                 .partial_cmp(&a.activity_score())
                 .unwrap_or(std::cmp::Ordering::Equal)
         }),
-        Sort::Stars => repos.sort_by(|a, b| b.stargazers_count.cmp(&a.stargazers_count)),
-        Sort::Size => repos.sort_by(|a, b| b.size.cmp(&a.size)),
-        Sort::Name => repos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+        Sort::Stars => repos.sort_by_key(|r| std::cmp::Reverse(r.stargazers_count)),
+        Sort::Size => repos.sort_by_key(|r| std::cmp::Reverse(r.size)),
+        Sort::Name => repos.sort_by_key(|a| a.name.to_lowercase()),
     }
 }
 

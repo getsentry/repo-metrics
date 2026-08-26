@@ -913,7 +913,7 @@ pub fn build_tree(entries: &[git::TreeEntry], root_path: &str, max_depth: usize)
     }
 
     let mut children: Vec<TreeNode> = order.into_iter().filter_map(|k| index.remove(&k)).collect();
-    children.sort_by(|a, b| b.size.cmp(&a.size));
+    children.sort_by_key(|c| std::cmp::Reverse(c.size));
 
     if max_depth > 1 {
         for c in children.iter_mut() {

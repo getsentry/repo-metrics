@@ -331,13 +331,13 @@ pub fn run(opts: Opts) -> Result<()> {
 }
 
 fn human_secs(s: u64) -> String {
-    if s % 86_400 == 0 && s >= 86_400 {
+    if s.is_multiple_of(86_400) && s >= 86_400 {
         let d = s / 86_400;
         format!("{d} day{}", if d == 1 { "" } else { "s" })
-    } else if s % 3600 == 0 && s >= 3600 {
+    } else if s.is_multiple_of(3600) && s >= 3600 {
         let h = s / 3600;
         format!("{h} hour{}", if h == 1 { "" } else { "s" })
-    } else if s % 60 == 0 {
+    } else if s.is_multiple_of(60) {
         let m = s / 60;
         format!("{m} minute{}", if m == 1 { "" } else { "s" })
     } else {

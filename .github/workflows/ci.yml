@@ -20,9 +20,6 @@ jobs:
           # clone would leave it with a single commit to look at.
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
 
