@@ -32,6 +32,21 @@ $B hotspots --repo sentry --since 1y --format json 2>/dev/null | python3 -c 'imp
 $B hotspots --repo sentry --since 1y --format html -o /tmp/r.html >/dev/null 2>&1
 node -e 'const h=require("fs").readFileSync("/tmp/r.html","utf8");const m=h.match(/<script>([\s\S]*?)<\/script>/);new Function(m[1]);' || { echo "  FAIL html js"; fail=1; }
 [ "$(grep -c '<title>' /tmp/r.html)" = "1" ] || { echo "  FAIL html duplicated"; fail=1; }
+# The commits chart carries a second series on its own scale. It must be separate
+# from `series`, or it would be stacked with them as if it shared their axis.
+$B timeseries --repo sentry --by month --since 2y --format json 2>/dev/null \
+  | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+ov=d.get("overlay"); assert ov, "no authors overlay"
+assert len(ov["points"])==len(d["x"]), "overlay length differs from the x axis"
+assert any(v>0 for v in ov["points"]), "overlay is all zero"
+assert all(s["name"]!=ov["name"] for s in d["series"]), "overlay leaked into series"
+' || { echo "  FAIL authors overlay"; fail=1; }
+$B timeseries --repo sentry --by month --since 1y --overlay none --format json 2>/dev/null \
+  | python3 -c 'import json,sys; assert "overlay" not in json.load(sys.stdin), "--overlay none still emits one"' \
+  || { echo "  FAIL --overlay none"; fail=1; }
+
 # Header links: repo names go to the forge, date boundaries to real commits.
 $B hotspots --repo sentry --since 2026-05-28 --until 2026-06-30 --format json 2>/dev/null \
   | python3 -c '

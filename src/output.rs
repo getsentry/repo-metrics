@@ -148,6 +148,14 @@ pub enum Output {
         series: Vec<Series>,
         stacked: bool,
         y_label: String,
+        /// A second measure on its own scale, drawn against a right-hand axis.
+        /// Deliberately not part of `series`: it shares the x axis and nothing else,
+        /// and where it crosses the bars is an artefact of the two scales rather
+        /// than anything true about the data.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        overlay: Option<Series>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        overlay_label: Option<String>,
     },
     Table {
         title: String,
@@ -330,9 +338,20 @@ pub fn render_term(o: &Output) -> String {
 
     match o {
         Output::Series {
-            x, series, y_label, ..
+            x,
+            series,
+            y_label,
+            overlay,
+            overlay_label,
+            ..
         } => {
-            let namew = series.iter().map(|s| width(&s.name)).max().unwrap_or(0).max(6);
+            let namew = series
+                .iter()
+                .chain(overlay.iter())
+                .map(|s| width(&s.name))
+                .max()
+                .unwrap_or(0)
+                .max(6);
             for s in series {
                 let total: f64 = s.points.iter().sum();
                 out.push_str(&format!(
@@ -340,6 +359,20 @@ pub fn render_term(o: &Output) -> String {
                     pad(&s.name, namew, false),
                     st.accent(&sparkline(&s.points)),
                     st.dim(&format!("{} {}", group(total as i64), y_label))
+                ));
+            }
+            if let Some(ov) = overlay {
+                // Its own scale, so the total is a peak rather than a sum.
+                let peak = ov.points.iter().cloned().fold(0.0f64, f64::max);
+                out.push_str(&format!(
+                    "  {}  {}  {}\n",
+                    pad(&ov.name, namew, false),
+                    st.dim(&sparkline(&ov.points)),
+                    st.dim(&format!(
+                        "peak {} {}",
+                        group(peak as i64),
+                        overlay_label.as_deref().unwrap_or("")
+                    ))
                 ));
             }
             if let (Some(first), Some(last)) = (x.first(), x.last()) {

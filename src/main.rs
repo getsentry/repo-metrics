@@ -88,6 +88,9 @@ enum Cmd {
         metric: Metric,
         #[arg(long, value_enum, default_value = "none")]
         split: Split,
+        /// Second line on its own axis: distinct humans active per bucket
+        #[arg(long, value_enum, default_value = "authors")]
+        overlay: Overlay,
         #[arg(long, default_value = "8")]
         top: usize,
         #[command(flatten)]
@@ -382,10 +385,10 @@ fn main() -> Result<()> {
             };
             print!("{}", render_term(&o));
         }
-        Cmd::Timeseries { by, metric, split, top, scope } => {
+        Cmd::Timeseries { by, metric, split, overlay, top, scope } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top);
+            let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top, overlay);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }

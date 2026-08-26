@@ -210,6 +210,13 @@ impl Identities {
         }
     }
 
+    /// A real person: matches no agent or infra rule, and doesn't look like a bot.
+    /// Used to count how many humans were active in a period, which has to consider
+    /// co-authors too — pairing and agent-assisted work both put people there.
+    pub fn is_human(&self, name: &str, email: &str) -> bool {
+        self.match_identity(name, email).is_none() && !Self::looks_like_bot(name)
+    }
+
     pub fn match_identity(&self, name: &str, email: &str) -> Option<&Rule> {
         let name_l = name.to_lowercase();
         let email_l = email.to_lowercase();

@@ -55,6 +55,15 @@ impl Measure {
     }
 }
 
+/// A second measure drawn against its own axis on the commits chart.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
+pub enum Overlay {
+    /// No second line
+    None,
+    /// Distinct humans who authored or co-authored in each bucket
+    Authors,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
 pub enum Split {
     None,

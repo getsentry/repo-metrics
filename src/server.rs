@@ -384,7 +384,19 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
 
     let view = q.get("view").map(|s| s.as_str()).unwrap_or("timeseries");
     let mut out = match view {
-        "timeseries" => cmds::timeseries(&cache, &ids, &f, by, metric, split, top),
+        "timeseries" => cmds::timeseries(
+            &cache,
+            &ids,
+            &f,
+            by,
+            metric,
+            split,
+            top,
+            match q.get("overlay").map(|s| s.as_str()) {
+                Some("none") => Overlay::None,
+                _ => Overlay::Authors,
+            },
+        ),
         "folders" => cmds::folders(&cache, &ids, &f, by, metric, depth.max(1), top),
         "hotspots" => cmds::hotspots(&cache, &ids, &f, depth.max(1), top.max(5)),
         "flags" => cmds::flags(
@@ -469,7 +481,7 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 <script>{js}
 
 const VIEWS=[
-  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','split','top'],{{}}],
+  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','split','overlay','top'],{{}}],
   ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','depth','top'],{{depth:'1'}}],
   ['hotspots',  'Fastest-moving',      ['repo','since','until','path','depth','top'],{{depth:'2',top:'20'}}],
   ['tree',      'Folder sizes',        ['repo','at','subpath','measure','depth'],{{depth:'2'}}],
@@ -494,6 +506,7 @@ const FIELDS={{
   by:    {{t:'select',label:'bucket',opts:['day','week','month'],def:'week'}},
   metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
+  overlay:{{t:'select',label:'overlay',opts:['authors','none'],def:'authors'}},
   measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},
   top:   {{t:'select',label:'top',opts:['5','8','12','20','30','50'],def:'12'}},

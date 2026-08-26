@@ -104,7 +104,8 @@ function showTip(html,x,y){const t=tip();t.innerHTML=html;t.classList.add('on');
 function hideTip(){ if(TIP)TIP.classList.remove('on'); }
 
 function renderSeries(el,d){
-  const W=1000,H=340,mL=58,mR=16,mT=14,mB=30;
+  const ov=d.overlay&&d.overlay.points&&d.overlay.points.some(v=>v>0)?d.overlay:null;
+  const W=1000,H=340,mL=58,mR=ov?62:16,mT=ov?32:14,mB=30;
   const n=d.x.length, S=d.series.filter(s=>s.points.some(v=>v>0)) ;
   if(!n||!S.length){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
   const iw=W-mL-mR, ih=H-mT-mB;
@@ -114,6 +115,12 @@ function renderSeries(el,d){
   if(max<=0)max=1;
   const X=i=> n===1?mL+iw/2 : mL+(i/(n-1))*iw;
   const Y=v=> mT+ih-(v/max)*ih;
+  // A second, independent scale. Where the overlay crosses the bands below is a
+  // consequence of these two ranges and means nothing on its own.
+  let omax=0; if(ov)for(const v of ov.points)omax=Math.max(omax,v||0);
+  const oStep=ov?niceStep(omax/4):1;
+  if(ov)omax=Math.max(Math.ceil(omax/oStep)*oStep,oStep);
+  const Y2=v=> mT+ih-(v/omax)*ih;
 
   let g='';
   // Round the axis to human numbers (1/2/5 x 10^n) and extend the scale to the
@@ -125,6 +132,17 @@ function renderSeries(el,d){
     const v=yStep*t, y=Y(v);
     g+=`<line x1="${mL}" y1="${y}" x2="${W-mR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
     g+=`<text x="${mL-8}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--faint)" class="mono">${fmt(v)}</text>`;
+  }
+  if(ov){
+    const oticks=Math.round(omax/oStep);
+    for(let t=0;t<=oticks;t++){
+      const v=oStep*t, y=Y2(v);
+      g+=`<text x="${W-mR+8}" y="${y+4}" text-anchor="start" font-size="11" fill="var(--text)" class="mono">${fmt(v)}</text>`;
+    }
+    // Sit the titles clear of the topmost tick label rather than on it, and keep
+    // the right-hand one inside the viewBox.
+    g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||ov.name)} →</text>`;
+    g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
   }
   const step=Math.max(1,Math.ceil(n/7));
   for(let i=0;i<n;i+=step){
@@ -152,12 +170,21 @@ function renderSeries(el,d){
     });
   }
 
+  if(ov){
+    let pts='';
+    for(let i=0;i<n;i++)pts+=`${X(i)},${Y2(ov.points[i]||0)} `;
+    // Ink rather than a palette hue, and dashed: it reads as a reference line on
+    // its own axis instead of another band in the stack.
+    marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="2"
+            stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>`;
+  }
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(d.title)}">${g}${marks}
       <line id="cross" x1="0" y1="${mT}" x2="0" y2="${mT+ih}" stroke="var(--faint)"
         stroke-width="1" stroke-dasharray="3 3" opacity="0"/></svg>
     <div class="legend">${S.map((s,i)=>
-      `<span><i style="background:${color(i)}"></i>${esc(s.name)}</span>`).join('')}</div>`;
+      `<span><i style="background:${color(i)}"></i>${esc(s.name)}</span>`).join('')
+      +(ov?`<span><i style="background:var(--text);opacity:.75"></i>${esc(ov.name)} <em style="font-style:normal;opacity:.7">(right axis)</em></span>`:'')}</div>`;
 
   const svg=el.querySelector('svg'), cross=svg.querySelector('#cross');
   svg.addEventListener('mousemove',e=>{
@@ -168,7 +195,8 @@ function renderSeries(el,d){
     cross.setAttribute('x1',X(i));cross.setAttribute('x2',X(i));cross.setAttribute('opacity','1');
     let tot=0; const lines=S.map((s,si)=>{const v=s.points[i]||0;tot+=v;
       return `<div><span style="color:${color(si)}">■</span> ${esc(s.name)} ${fmt(v)}</div>`;}).join('');
-    showTip(`<b>${esc(d.x[i])}</b>${lines}${S.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}`,e.clientX,e.clientY);
+    const otip=ov?`<div>▦ ${esc(ov.name)} ${fmt(ov.points[i]||0)}</div>`:'';
+    showTip(`<b>${esc(d.x[i])}</b>${lines}${S.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${otip}`,e.clientX,e.clientY);
   });
   svg.addEventListener('mouseleave',()=>{cross.setAttribute('opacity','0');hideTip();});
 }

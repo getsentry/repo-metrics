@@ -120,7 +120,7 @@ repo-metrics authors    --repo sentry --since 6m --top 25
 
 | Command | Answers |
 |---|---|
-| `timeseries` | Commits over time, split by assist kind, tool, author or language |
+| `timeseries` | Commits over time, with a second line for how many humans were active |
 | `folders` | Commits or churn per folder over time |
 | `hotspots` | Which directories are moving fastest |
 | `tree` | Folder sizes at a point in time, as an indented tree or a sunburst |
@@ -151,6 +151,16 @@ of the line count from 90 files, so it swamps a byte- or line-sized tree while
 `files` puts it at under 2% and the real subsystems surface. SLOC comes from
 `git grep -c`, which counts and skips binaries itself and costs about a third of
 a second on a 20,000-file tree.
+
+`timeseries` draws a second line for the number of distinct humans who authored or
+co-authored in each bucket, against its own axis on the right (`--overlay none`
+turns it off). Co-authors count, since pairing and agent-assisted work both put a
+real person on a commit they worked on, and bots and agents are excluded.
+
+Read the two lines separately. They share only the x axis, so where the dashed
+line crosses the solid one is a consequence of the two scales and means nothing on
+its own. What it is good for is telling apart "more people" from "more per
+person": if commits climb while the author line stays flat, output per person rose.
 
 `repos` lists what's in the cache.
 

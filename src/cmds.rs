@@ -17,16 +17,35 @@ pub fn timeseries(
     m: Metric,
     split: Split,
     top: usize,
+    overlay: Overlay,
 ) -> Output {
     let repos = select_repos(cache, f);
     let mut buckets: HashMap<(String, i32), f64> = HashMap::new();
     let mut keys: Vec<i32> = Vec::new();
     let mut totals: HashMap<String, f64> = HashMap::new();
+    // Distinct humans per bucket. Co-authors count: pairing and agent-assisted
+    // work both put a second person on a commit they genuinely worked on.
+    let mut people: HashMap<i32, std::collections::HashSet<String>> = HashMap::new();
 
     for r in &repos {
         for res in resolve(r, ids, f, false) {
             let (k, _) = bucket_key(res.commit.days, b);
             keys.push(k);
+            if overlay == Overlay::Authors {
+                let set = people.entry(k).or_default();
+                let note = |n: &str, e: &str, set: &mut std::collections::HashSet<String>| {
+                    if ids.is_human(n, e) {
+                        // Email is the steadier handle than a display name, which
+                        // people change; an empty one falls back to the name.
+                        let key = if e.is_empty() { n } else { e };
+                        set.insert(key.to_lowercase());
+                    }
+                };
+                note(r.s(res.commit.author), r.s(res.commit.email), set);
+                for (cn, ce) in &res.commit.coauthors {
+                    note(r.s(*cn), r.s(*ce), set);
+                }
+            }
             for (name, v) in split_values(&res, split, m, &f.path) {
                 if v == 0.0 {
                     continue;
@@ -40,6 +59,13 @@ pub fn timeseries(
     let ax = axis(&keys, b);
     let names = rank_names(&totals, top);
     let series = build_series(&buckets, &ax, &names);
+    let overlay_series = (overlay == Overlay::Authors).then(|| Series {
+        name: "human authors".into(),
+        points: ax
+            .iter()
+            .map(|(k, _)| people.get(k).map(|s| s.len() as f64).unwrap_or(0.0))
+            .collect(),
+    });
     Output::Series {
         title: format!("Commits over time — {}", m.label()),
         subtitle: range_label(f, &repos),
@@ -49,6 +75,8 @@ pub fn timeseries(
         series,
         stacked: split != Split::None,
         y_label: m.label().to_string(),
+        overlay: overlay_series,
+        overlay_label: Some("distinct humans".into()),
     }
 }
 
@@ -171,6 +199,8 @@ pub fn folders(
         series,
         stacked: true,
         y_label: m.label().to_string(),
+        overlay: None,
+        overlay_label: None,
     }
 }
 
@@ -645,6 +675,8 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         series,
         stacked: true,
         y_label: "commits".into(),
+        overlay: None,
+        overlay_label: None,
     }
 }
 
