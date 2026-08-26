@@ -57,7 +57,9 @@ impl Drop for Lock {
 
 pub fn trim_log() {
     let p = log_path();
-    let big = std::fs::metadata(&p).map(|m| m.len() > LOG_MAX_BYTES).unwrap_or(false);
+    let big = std::fs::metadata(&p)
+        .map(|m| m.len() > LOG_MAX_BYTES)
+        .unwrap_or(false);
     if !big {
         return;
     }
@@ -134,7 +136,10 @@ pub fn run(opts: Opts) -> Result<()> {
         .context("could not build refresh pool")?;
 
     let outcomes: Vec<(PathBuf, Outcome)> = if opts.no_fetch {
-        targets.iter().map(|p| (p.clone(), Outcome::UpToDate)).collect()
+        targets
+            .iter()
+            .map(|p| (p.clone(), Outcome::UpToDate))
+            .collect()
     } else {
         pool.install(|| {
             targets

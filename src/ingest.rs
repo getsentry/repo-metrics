@@ -13,6 +13,12 @@ const FLD: char = '\x1f';
 /// all stay busy to the end of a 109k-commit history.
 const CHUNK: usize = 3000;
 
+/// One file's entry in a numstat block: added, removed, path. Added and removed
+/// are -1 for binaries, which report `-` rather than a count.
+pub type FileStat = (i32, i32, String);
+/// A commit's sha paired with the files it touched.
+pub type ShaFiles = (String, Vec<FileStat>);
+
 pub struct RawCommit {
     pub sha: String,
     pub days: i32,
@@ -101,7 +107,7 @@ fn parse_meta(out: &str) -> Vec<RawCommit> {
     commits
 }
 
-fn parse_numstat(out: &str) -> Vec<(String, Vec<(i32, i32, String)>)> {
+fn parse_numstat(out: &str) -> Vec<ShaFiles> {
     let mut result = Vec::new();
     for rec in out.split(REC) {
         if rec.trim().is_empty() {
@@ -136,7 +142,7 @@ fn parse_numstat(out: &str) -> Vec<(String, Vec<(i32, i32, String)>)> {
     result
 }
 
-fn ingest_range(repo: &Path, range: &str, quiet: bool) -> Result<Vec<(RawCommit, Vec<(i32, i32, String)>)>> {
+fn ingest_range(repo: &Path, range: &str, quiet: bool) -> Result<Vec<(RawCommit, Vec<FileStat>)>> {
     let shas = git::rev_list(repo, range)?;
     if shas.is_empty() {
         return Ok(Vec::new());
@@ -169,12 +175,18 @@ fn ingest_range(repo: &Path, range: &str, quiet: bool) -> Result<Vec<(RawCommit,
     // sha list so every commit lands in exactly one chunk.
     let t1 = Instant::now();
     let chunks: Vec<&[String]> = shas.chunks(CHUNK).collect();
-    let outs: Vec<Vec<(String, Vec<(i32, i32, String)>)>> = chunks
+    let outs: Vec<Vec<ShaFiles>> = chunks
         .par_iter()
         .map(|chunk| {
             git::git_log_stdin(
                 repo,
-                &["log", "--stdin", "--no-walk", "--numstat", "--format=%x1e%H"],
+                &[
+                    "log",
+                    "--stdin",
+                    "--no-walk",
+                    "--numstat",
+                    "--format=%x1e%H",
+                ],
                 chunk,
             )
             .map(|o| parse_numstat(&o))
@@ -182,7 +194,7 @@ fn ingest_range(repo: &Path, range: &str, quiet: bool) -> Result<Vec<(RawCommit,
         })
         .collect();
 
-    let mut by_sha: HashMap<String, Vec<(i32, i32, String)>> = HashMap::with_capacity(shas.len());
+    let mut by_sha: HashMap<String, Vec<FileStat>> = HashMap::with_capacity(shas.len());
     let mut nfiles = 0usize;
     for o in outs {
         for (sha, files) in o {
@@ -214,7 +226,7 @@ fn build_repo_data(
     head: String,
     web: Option<String>,
     mut existing: Option<RepoData>,
-    fresh: Vec<(RawCommit, Vec<(i32, i32, String)>)>,
+    fresh: Vec<(RawCommit, Vec<FileStat>)>,
 ) -> RepoData {
     let mut interner = Interner::new();
     let (mut commits, mut changes) = match existing.take() {
@@ -280,7 +292,12 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
     let prev_head = idx.and_then(|i| {
         let r = &cache.repos[i];
         // A checkpoint that has been rebased out from under us is not a checkpoint.
-        if git::git(repo_path, &["cat-file", "-e", &format!("{}^{{commit}}", r.head)]).is_ok() {
+        if git::git(
+            repo_path,
+            &["cat-file", "-e", &format!("{}^{{commit}}", r.head)],
+        )
+        .is_ok()
+        {
             Some(r.head.clone())
         } else {
             None

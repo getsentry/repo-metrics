@@ -89,7 +89,7 @@ pub enum Sort {
 
 pub fn sort_repos(repos: &mut [Repo], by: Sort) {
     match by {
-        Sort::Recent => repos.sort_by(|a, b| b.pushed_ts().cmp(&a.pushed_ts())),
+        Sort::Recent => repos.sort_by_key(|r| std::cmp::Reverse(r.pushed_ts())),
         Sort::Active => repos.sort_by(|a, b| {
             b.activity_score()
                 .partial_cmp(&a.activity_score())
@@ -113,9 +113,17 @@ fn cache_file(org: &str) -> PathBuf {
     // the directory — but sanitise anyway rather than trust the argument.
     let safe: String = org
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    crate::model::cache_dir().join("orgs").join(format!("{safe}.json"))
+    crate::model::cache_dir()
+        .join("orgs")
+        .join(format!("{safe}.json"))
 }
 
 fn gh(args: &[String]) -> Result<String> {
@@ -182,9 +190,7 @@ fn fetch_page(org: &str, is_org: bool, page: usize) -> Result<Vec<Repo>> {
     let kind = if is_org { "orgs" } else { "users" };
     // sort=pushed matters even though we re-sort locally: it means a truncated fetch
     // still returns the repos most likely to be wanted.
-    let path = format!(
-        "{kind}/{org}/repos?per_page={PER_PAGE}&sort=pushed&type=all&page={page}"
-    );
+    let path = format!("{kind}/{org}/repos?per_page={PER_PAGE}&sort=pushed&type=all&page={page}");
     let body = gh(&["api".into(), path])?;
     let repos: Vec<Repo> = serde_json::from_str(&body)
         .with_context(|| format!("unexpected response for {org} page {page}"))?;
@@ -220,20 +226,28 @@ pub fn list_repos(org: &str, limit: usize, refresh: bool) -> Result<Listing> {
         }
     }
 
-    let (total, is_org) = owner_repo_count(org)
-        .with_context(|| format!("no such GitHub org or user: {org}"))?;
+    let (total, is_org) =
+        owner_repo_count(org).with_context(|| format!("no such GitHub org or user: {org}"))?;
 
     // The count endpoints undercount slightly against `type=all`; ask for a couple
     // of extra pages and stop when one comes back short.
-    let want = if limit == 0 { total + 2 * PER_PAGE } else { limit.min(total + 2 * PER_PAGE) };
+    let want = if limit == 0 {
+        total + 2 * PER_PAGE
+    } else {
+        limit.min(total + 2 * PER_PAGE)
+    };
     let pages = want.div_ceil(PER_PAGE).max(1);
 
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(API_JOBS)
         .build()
         .context("could not build API thread pool")?;
-    let results: Vec<Result<Vec<Repo>>> =
-        pool.install(|| (1..=pages).into_par_iter().map(|p| fetch_page(org, is_org, p)).collect());
+    let results: Vec<Result<Vec<Repo>>> = pool.install(|| {
+        (1..=pages)
+            .into_par_iter()
+            .map(|p| fetch_page(org, is_org, p))
+            .collect()
+    });
 
     let mut repos = Vec::new();
     let mut short_page = false;

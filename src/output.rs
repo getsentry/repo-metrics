@@ -212,7 +212,9 @@ pub enum Output {
 impl Output {
     pub fn title(&self) -> &str {
         match self {
-            Output::Series { title, .. } | Output::Table { title, .. } | Output::Tree { title, .. } => title,
+            Output::Series { title, .. }
+            | Output::Table { title, .. }
+            | Output::Tree { title, .. } => title,
         }
     }
     /// Views that already pin themselves to a specific commit (the tree snapshots)
@@ -450,10 +452,16 @@ pub fn render_term(o: &Output) -> String {
             out.push_str(&format!("  {}\n", st.dim(&header.join("  "))));
             out.push_str(&format!(
                 "  {}\n",
-                st.dim(&w.iter().map(|n| "─".repeat(*n)).collect::<Vec<_>>().join("  "))
+                st.dim(
+                    &w.iter()
+                        .map(|n| "─".repeat(*n))
+                        .collect::<Vec<_>>()
+                        .join("  ")
+                )
             ));
 
-            let maxbar = bar_column.as_ref()
+            let maxbar = bar_column
+                .as_ref()
                 .map(|bc| {
                     rows.iter()
                         .filter_map(|r| r.get(*bc))

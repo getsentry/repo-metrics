@@ -100,7 +100,7 @@ pub struct Filter {
 
 impl Filter {
     pub fn covers(&self, days: i32) -> bool {
-        self.since.map_or(true, |s| days >= s) && self.until.map_or(true, |u| days <= u)
+        self.since.is_none_or(|s| days >= s) && self.until.is_none_or(|u| days <= u)
     }
 }
 
@@ -256,6 +256,9 @@ pub fn resolve<'a>(
 /// Repo selection tries progressively looser matches and stops at the first that
 /// hits anything. A plain substring test alone is wrong here: `--repo sentry` would
 /// also select `getsentry/relay`, because "getsentry" contains "sentry".
+/// One rung of the repo-matching ladder.
+type RepoMatcher = Box<dyn Fn(&RepoData) -> bool>;
+
 pub fn select_repos<'a>(cache: &'a Cache, f: &Filter) -> Vec<&'a RepoData> {
     let want = match &f.repo {
         None => return cache.repos.iter().collect(),
@@ -263,7 +266,7 @@ pub fn select_repos<'a>(cache: &'a Cache, f: &Filter) -> Vec<&'a RepoData> {
     };
     let short = |r: &RepoData| r.name.rsplit('/').next().unwrap_or("").to_lowercase();
 
-    let tiers: [Box<dyn Fn(&RepoData) -> bool>; 4] = [
+    let tiers: [RepoMatcher; 4] = [
         Box::new({
             let want = want.clone();
             move |r: &RepoData| r.name.to_lowercase() == want
@@ -297,7 +300,10 @@ pub fn path_matches(dir: &str, path: &str, prefix: &Option<String>) -> bool {
         None => true,
         Some(p) => {
             let p = p.trim_end_matches('/');
-            p.is_empty() || dir == p || dir.starts_with(&format!("{p}/")) || path.starts_with(&format!("{p}/"))
+            p.is_empty()
+                || dir == p
+                || dir.starts_with(&format!("{p}/"))
+                || path.starts_with(&format!("{p}/"))
         }
     }
 }
@@ -429,9 +435,15 @@ fn boundary_commit(repo: &RepoData, day: i32, earliest: bool) -> Option<(&Commit
         return Some((c, false));
     }
     let near = if earliest {
-        repo.commits.iter().filter(|c| c.days > day).min_by_key(|c| (c.days, c.ts))
+        repo.commits
+            .iter()
+            .filter(|c| c.days > day)
+            .min_by_key(|c| (c.days, c.ts))
     } else {
-        repo.commits.iter().filter(|c| c.days < day).max_by_key(|c| (c.days, c.ts))
+        repo.commits
+            .iter()
+            .filter(|c| c.days < day)
+            .max_by_key(|c| (c.days, c.ts))
     };
     near.map(|c| (c, true))
 }

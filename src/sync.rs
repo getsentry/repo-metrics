@@ -9,7 +9,9 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 /// Directories people conventionally keep checkouts in, best guess first.
-const ROOT_GUESSES: &[&str] = &["code", "src", "dev", "Projects", "projects", "repos", "work"];
+const ROOT_GUESSES: &[&str] = &[
+    "code", "src", "dev", "Projects", "projects", "repos", "work",
+];
 
 pub struct Opts {
     pub org: Option<String>,
@@ -96,7 +98,10 @@ fn ensure_dir(p: &Path, assume_yes: bool, dry_run: bool) -> Result<()> {
     }
     let ok = assume_yes
         || !picker::is_interactive()
-        || picker::confirm(&format!("{} does not exist — create it?", display_path(p)), true)?;
+        || picker::confirm(
+            &format!("{} does not exist — create it?", display_path(p)),
+            true,
+        )?;
     if !ok {
         bail!("no directory to clone into");
     }
@@ -112,7 +117,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
         .output()
         .context("failed to run git")?;
     if !out.status.success() {
-        bail!("{}", String::from_utf8_lossy(&out.stderr).trim().to_string());
+        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -165,7 +170,10 @@ impl Outcome {
         match self {
             Outcome::Cloned(s) => format!("cloned in {s:.1}s"),
             Outcome::UpToDate => "up to date".into(),
-            Outcome::FastForwarded(n) => format!("fast-forwarded {n} commit{}", if *n == 1 { "" } else { "s" }),
+            Outcome::FastForwarded(n) => format!(
+                "fast-forwarded {n} commit{}",
+                if *n == 1 { "" } else { "s" }
+            ),
             Outcome::HeldBack(why) => why.clone(),
             Outcome::Failed(e) => format!("failed: {e}"),
         }
@@ -207,9 +215,18 @@ fn update_one(root: &Path, r: &Repo) -> Outcome {
 pub fn update_checkout(dir: &Path) -> Outcome {
     let dir = dir.to_path_buf();
     if let Err(e) = git(&dir, &["fetch", "--prune", "--quiet"]) {
-        return Outcome::Failed(e.to_string().lines().last().unwrap_or("fetch failed").into());
+        return Outcome::Failed(
+            e.to_string()
+                .lines()
+                .last()
+                .unwrap_or("fetch failed")
+                .into(),
+        );
     }
-    let upstream = match git(&dir, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]) {
+    let upstream = match git(
+        &dir,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+    ) {
         Ok(u) => u,
         Err(_) => return Outcome::HeldBack("fetched; no upstream branch".into()),
     };
@@ -229,10 +246,16 @@ pub fn update_checkout(dir: &Path) -> Outcome {
         return Outcome::HeldBack(format!(
             "fetched; {ahead} local commit{} not pushed{}",
             if ahead == 1 { "" } else { "s" },
-            if behind > 0 { format!(", {behind} behind") } else { String::new() }
+            if behind > 0 {
+                format!(", {behind} behind")
+            } else {
+                String::new()
+            }
         ));
     }
-    let dirty = git(&dir, &["status", "--porcelain"]).map(|s| !s.is_empty()).unwrap_or(true);
+    let dirty = git(&dir, &["status", "--porcelain"])
+        .map(|s| !s.is_empty())
+        .unwrap_or(true);
     if dirty {
         return Outcome::HeldBack(format!("fetched; {behind} behind, working tree dirty"));
     }
@@ -240,7 +263,10 @@ pub fn update_checkout(dir: &Path) -> Outcome {
         Ok(_) => Outcome::FastForwarded(behind),
         Err(e) => Outcome::HeldBack(format!(
             "fetched; {behind} behind, {}",
-            e.to_string().lines().last().unwrap_or("could not fast-forward")
+            e.to_string()
+                .lines()
+                .last()
+                .unwrap_or("could not fast-forward")
         )),
     }
 }
@@ -264,7 +290,9 @@ pub fn run(opts: Opts) -> Result<()> {
         Some(o) => o.clone(),
         None => {
             if !picker::is_interactive() {
-                bail!("which GitHub org? pass it as an argument, e.g. `repo-metrics sync getsentry`");
+                bail!(
+                    "which GitHub org? pass it as an argument, e.g. `repo-metrics sync getsentry`"
+                );
             }
             let a = picker::prompt("Which GitHub org or user?", "getsentry")?;
             if a.trim().is_empty() {
@@ -282,7 +310,11 @@ pub fn run(opts: Opts) -> Result<()> {
     eprintln!(
         "{} found{}{}",
         repos.len(),
-        if listing.complete { "" } else { " (truncated — use --limit 0 for all)" },
+        if listing.complete {
+            ""
+        } else {
+            " (truncated — use --limit 0 for all)"
+        },
         if listing.from_cache { " [cached]" } else { "" }
     );
 
@@ -292,7 +324,9 @@ pub fn run(opts: Opts) -> Result<()> {
     repos.retain(|r| (opts.include_archived || !r.archived) && (opts.include_forks || !r.fork));
     if let Some(f) = &opts.filter {
         let f = f.to_lowercase();
-        repos.retain(|r| r.name.to_lowercase().contains(&f) || r.full_name.to_lowercase().contains(&f));
+        repos.retain(|r| {
+            r.name.to_lowercase().contains(&f) || r.full_name.to_lowercase().contains(&f)
+        });
     }
     let hidden = before - repos.len();
     if repos.is_empty() {
@@ -335,7 +369,11 @@ pub fn run(opts: Opts) -> Result<()> {
                 Sort::Size => "largest",
                 Sort::Name => "alphabetical",
             },
-            if hidden > 0 { format!(" · {hidden} archived/forks hidden") } else { String::new() }
+            if hidden > 0 {
+                format!(" · {hidden} archived/forks hidden")
+            } else {
+                String::new()
+            }
         );
         match picker::pick(&title, &hint, &mut items)? {
             None => {
@@ -349,13 +387,27 @@ pub fn run(opts: Opts) -> Result<()> {
     // A destination that exists but is not a checkout is never overwritten. Say so
     // rather than dropping it silently — a selected repo that just vanishes from the
     // run is indistinguishable from a bug.
-    let blocked: Vec<usize> = chosen.iter().copied().filter(|&i| states[i] == Local::Conflict).collect();
-    let work: Vec<usize> = chosen.into_iter().filter(|&i| states[i] != Local::Conflict).collect();
+    let blocked: Vec<usize> = chosen
+        .iter()
+        .copied()
+        .filter(|&i| states[i] == Local::Conflict)
+        .collect();
+    let work: Vec<usize> = chosen
+        .into_iter()
+        .filter(|&i| states[i] != Local::Conflict)
+        .collect();
     if !blocked.is_empty() {
         eprintln!();
-        eprintln!("Skipping {} — the path exists but is not a git checkout:", blocked.len());
+        eprintln!(
+            "Skipping {} — the path exists but is not a git checkout:",
+            blocked.len()
+        );
         for &i in &blocked {
-            eprintln!("  ! {}  ({})", repos[i].full_name, display_path(&root.join(&repos[i].name)));
+            eprintln!(
+                "  ! {}  ({})",
+                repos[i].full_name,
+                display_path(&root.join(&repos[i].name))
+            );
         }
     }
     if work.is_empty() {
@@ -363,8 +415,16 @@ pub fn run(opts: Opts) -> Result<()> {
         return Ok(());
     }
 
-    let to_clone: Vec<usize> = work.iter().copied().filter(|&i| states[i] == Local::Missing).collect();
-    let to_update: Vec<usize> = work.iter().copied().filter(|&i| states[i] == Local::Present).collect();
+    let to_clone: Vec<usize> = work
+        .iter()
+        .copied()
+        .filter(|&i| states[i] == Local::Missing)
+        .collect();
+    let to_update: Vec<usize> = work
+        .iter()
+        .copied()
+        .filter(|&i| states[i] == Local::Present)
+        .collect();
     let download_kb: u64 = to_clone.iter().map(|&i| repos[i].size).sum();
 
     eprintln!();
@@ -377,7 +437,11 @@ pub fn run(opts: Opts) -> Result<()> {
     );
     if opts.dry_run {
         for &i in &to_clone {
-            println!("clone   {}  ({})", repos[i].full_name, human_kb(repos[i].size));
+            println!(
+                "clone   {}  ({})",
+                repos[i].full_name,
+                human_kb(repos[i].size)
+            );
         }
         for &i in &to_update {
             println!("update  {}", repos[i].full_name);
@@ -451,7 +515,9 @@ pub fn run(opts: Opts) -> Result<()> {
         }
     }
     if held > 0 {
-        eprintln!("\n  \"left alone\" means fetched but not merged — local commits or a dirty tree.");
+        eprintln!(
+            "\n  \"left alone\" means fetched but not merged — local commits or a dirty tree."
+        );
     }
 
     if opts.ingest {

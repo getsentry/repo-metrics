@@ -1,3 +1,8 @@
+// The chart functions take one parameter per control the view exposes — repo,
+// window, path, bucket, metric, divisor, split, overlay, depth, top. Bundling them
+// into a struct would only move the same list somewhere else.
+#![allow(clippy::too_many_arguments)]
+
 mod cmds;
 mod git;
 mod github;
@@ -376,7 +381,7 @@ fn main() -> Result<()> {
                 title: "Ingested repositories".into(),
                 subtitle: cache_path().display().to_string(),
                 source: None,
-        scope: None,
+                scope: None,
                 columns: vec![
                     "repo".into(),
                     "commits".into(),
@@ -392,14 +397,29 @@ fn main() -> Result<()> {
             };
             print!("{}", render_term(&o));
         }
-        Cmd::Timeseries { by, metric, split, overlay, per, top, scope } => {
+        Cmd::Timeseries {
+            by,
+            metric,
+            split,
+            overlay,
+            per,
+            top,
+            scope,
+        } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top, overlay, per);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Folders { by, metric, depth, per, top, scope } => {
+        Cmd::Folders {
+            by,
+            metric,
+            depth,
+            per,
+            top,
+            scope,
+        } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::folders(&c, &ids, &f, by, metric, depth, top, per);
@@ -413,21 +433,41 @@ fn main() -> Result<()> {
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Compare { a, b, depth, top, scope } => {
+        Cmd::Compare {
+            a,
+            b,
+            depth,
+            top,
+            scope,
+        } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::compare(&c, &ids, &f, &a, &b, depth, top)?;
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Flags { depth, z, min_churn, window, min_baseline, top, scope } => {
+        Cmd::Flags {
+            depth,
+            z,
+            min_churn,
+            window,
+            min_baseline,
+            top,
+            scope,
+        } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::flags(&c, &ids, &f, depth, z, min_churn, window, min_baseline, top);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Tree { at, subpath, depth, measure, scope } => {
+        Cmd::Tree {
+            at,
+            subpath,
+            depth,
+            measure,
+            scope,
+        } => {
             let (c, _) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth, measure)?;
@@ -449,8 +489,21 @@ fn main() -> Result<()> {
             emit(&o, &scope)?;
         }
         Cmd::Sync {
-            org, dir, sort, limit, jobs, all, yes, refresh, ssh, https, filter,
-            include_archived, include_forks, dry_run, ingest,
+            org,
+            dir,
+            sort,
+            limit,
+            jobs,
+            all,
+            yes,
+            refresh,
+            ssh,
+            https,
+            filter,
+            include_archived,
+            include_forks,
+            dry_run,
+            ingest,
         } => {
             sync::run(sync::Opts {
                 org,
@@ -462,7 +515,13 @@ fn main() -> Result<()> {
                 yes,
                 refresh,
                 // None means "follow the gh config"; the flags force it either way.
-                ssh: if ssh { Some(true) } else if https { Some(false) } else { None },
+                ssh: if ssh {
+                    Some(true)
+                } else if https {
+                    Some(false)
+                } else {
+                    None
+                },
                 filter,
                 include_archived,
                 include_forks,
@@ -470,11 +529,28 @@ fn main() -> Result<()> {
                 ingest,
             })?;
         }
-        Cmd::Refresh { dir, jobs, quiet, no_fetch } => {
-            refresh::run(refresh::Opts { dir, jobs, quiet, no_fetch })?;
+        Cmd::Refresh {
+            dir,
+            jobs,
+            quiet,
+            no_fetch,
+        } => {
+            refresh::run(refresh::Opts {
+                dir,
+                jobs,
+                quiet,
+                no_fetch,
+            })?;
         }
         Cmd::Schedule {
-            interval, dir, jobs, remove, status, now, logs, no_run_at_load,
+            interval,
+            dir,
+            jobs,
+            remove,
+            status,
+            now,
+            logs,
+            no_run_at_load,
         } => {
             schedule::run(schedule::Opts {
                 interval,
@@ -487,7 +563,14 @@ fn main() -> Result<()> {
                 at_load: !no_run_at_load,
             })?;
         }
-        Cmd::Serve { port, daemon, stop, status, refresh, no_open } => {
+        Cmd::Serve {
+            port,
+            daemon,
+            stop,
+            status,
+            refresh,
+            no_open,
+        } => {
             server::run(port, daemon, stop, status, refresh, no_open)?;
         }
     }

@@ -74,11 +74,7 @@ pub fn timeseries(
             .collect(),
     });
     Output::Series {
-        title: format!(
-            "Commits over time — {}{}",
-            m.label(),
-            per_suffix(per)
-        ),
+        title: format!("Commits over time — {}{}", m.label(), per_suffix(per)),
         subtitle: range_label(f, &repos),
         source: None,
         scope: None,
@@ -98,10 +94,18 @@ fn human_keys(r: &Resolved, ids: &Identities) -> Vec<String> {
     let mut out = Vec::new();
     let add = |n: &str, e: &str, out: &mut Vec<String>| {
         if ids.is_human(n, e) {
-            out.push(if e.is_empty() { n.to_lowercase() } else { e.to_lowercase() });
+            out.push(if e.is_empty() {
+                n.to_lowercase()
+            } else {
+                e.to_lowercase()
+            });
         }
     };
-    add(r.repo.s(r.commit.author), r.repo.s(r.commit.email), &mut out);
+    add(
+        r.repo.s(r.commit.author),
+        r.repo.s(r.commit.email),
+        &mut out,
+    );
     for (n, e) in &r.commit.coauthors {
         add(r.repo.s(*n), r.repo.s(*e), &mut out);
     }
@@ -143,7 +147,12 @@ fn divide_by_counts(
     }
 }
 
-fn split_values(r: &Resolved, split: Split, m: Metric, path: &Option<String>) -> Vec<(String, f64)> {
+fn split_values(
+    r: &Resolved,
+    split: Split,
+    m: Metric,
+    path: &Option<String>,
+) -> Vec<(String, f64)> {
     match split {
         Split::None => vec![("all".to_string(), metric_value(r, m, path))],
         Split::Assist => vec![(r.assist.label().to_string(), metric_value(r, m, path))],
@@ -193,7 +202,10 @@ fn split_values(r: &Resolved, split: Split, m: Metric, path: &Option<String>) ->
 fn rank_names(totals: &HashMap<String, f64>, top: usize) -> Vec<String> {
     let mut v: Vec<(&String, &f64)> = totals.iter().collect();
     v.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
-    v.into_iter().take(top.max(1)).map(|(k, _)| k.clone()).collect()
+    v.into_iter()
+        .take(top.max(1))
+        .map(|(k, _)| k.clone())
+        .collect()
 }
 
 // --------------------------------------------------------- commits by folder
@@ -233,7 +245,11 @@ pub fn folders(
                 }
                 let key = {
                     let d = dir_at_depth(dir, depth);
-                    if d.is_empty() { "(root)" } else { d }
+                    if d.is_empty() {
+                        "(root)"
+                    } else {
+                        d
+                    }
                 }
                 .to_string();
                 let v = match m {
@@ -320,12 +336,7 @@ impl Default for Roll {
     }
 }
 
-fn rollup_dirs(
-    cache: &Cache,
-    ids: &Identities,
-    f: &Filter,
-    depth: usize,
-) -> Vec<(String, Roll)> {
+fn rollup_dirs(cache: &Cache, ids: &Identities, f: &Filter, depth: usize) -> Vec<(String, Roll)> {
     let repos = select_repos(cache, f);
     let mut acc: HashMap<String, Roll> = HashMap::new();
     for r in &repos {
@@ -339,7 +350,11 @@ fn rollup_dirs(
                 }
                 let key = {
                     let d = dir_at_depth(dir, depth);
-                    if d.is_empty() { "(root)" } else { d }
+                    if d.is_empty() {
+                        "(root)"
+                    } else {
+                        d
+                    }
                 }
                 .to_string();
                 let e = touched.entry(key).or_insert((0.0, 0.0, 0.0));
@@ -366,13 +381,7 @@ fn rollup_dirs(
     v
 }
 
-pub fn hotspots(
-    cache: &Cache,
-    ids: &Identities,
-    f: &Filter,
-    depth: usize,
-    top: usize,
-) -> Output {
+pub fn hotspots(cache: &Cache, ids: &Identities, f: &Filter, depth: usize, top: usize) -> Output {
     let repos = select_repos(cache, f);
     let rolled = rollup_dirs(cache, ids, f, depth);
     // "(root)" is the bucket for files with no directory, not a folder you can
@@ -410,7 +419,7 @@ pub fn hotspots(
             "authors".into(),
         ],
         bar_column: Some(1),
-        drill: drill,
+        drill,
         sections: Vec::new(),
         rows,
     }
@@ -429,8 +438,16 @@ pub fn compare(
 ) -> Result<Output> {
     let (a0, a1, alab) = parse_period(a)?;
     let (b0, b1, blab) = parse_period(b)?;
-    let fa = Filter { since: Some(a0), until: Some(a1), ..base.clone() };
-    let fb = Filter { since: Some(b0), until: Some(b1), ..base.clone() };
+    let fa = Filter {
+        since: Some(a0),
+        until: Some(a1),
+        ..base.clone()
+    };
+    let fb = Filter {
+        since: Some(b0),
+        until: Some(b1),
+        ..base.clone()
+    };
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
     let mut drill: Vec<Option<String>> = Vec::new();
@@ -513,28 +530,31 @@ pub fn compare(
     let repos = select_repos(cache, base);
     Ok(Output::Table {
         title: format!("Compare {alab} → {blab}"),
-        subtitle: format!(
-            "{}",
-            range_label(&Filter { since: None, until: None, ..base.clone() }, &repos)
-        ),
+        subtitle: range_label(
+            &Filter {
+                since: None,
+                until: None,
+                ..base.clone()
+            },
+            &repos,
+        )
+        .to_string(),
         source: None,
         scope: None,
-        columns: vec![
-            "measure".into(),
-            alab,
-            blab,
-            "Δ".into(),
-            "Δ%".into(),
-        ],
+        columns: vec!["measure".into(), alab, blab, "Δ".into(), "Δ%".into()],
         bar_column: None,
-        drill: drill,
+        drill,
         sections,
         rows,
     })
 }
 
 #[allow(clippy::type_complexity)]
-fn summarize(cache: &Cache, ids: &Identities, f: &Filter) -> (f64, f64, f64, f64, f64, f64, f64, f64) {
+fn summarize(
+    cache: &Cache,
+    ids: &Identities,
+    f: &Filter,
+) -> (f64, f64, f64, f64, f64, f64, f64, f64) {
     let repos = select_repos(cache, f);
     let (mut commits, mut added, mut removed, mut files, mut agent) = (0.0, 0.0, 0.0, 0.0, 0.0);
     let (mut assisted, mut authored) = (0.0, 0.0);
@@ -604,7 +624,11 @@ pub fn flags(
                 }
                 let key = {
                     let d = dir_at_depth(dir, depth);
-                    if d.is_empty() { "(root)" } else { d }
+                    if d.is_empty() {
+                        "(root)"
+                    } else {
+                        d
+                    }
                 }
                 .to_string();
                 *acc.entry((r.name.clone(), key))
@@ -699,9 +723,12 @@ pub fn flags(
 
 // ------------------------------------------------------------------- authors
 
+/// Commits, lines added, lines removed, classification, and the agent tools seen.
+type AuthorTally = (f64, f64, f64, AssistKind, Vec<String>);
+
 pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Output {
     let repos = select_repos(cache, f);
-    let mut acc: HashMap<String, (f64, f64, f64, AssistKind, Vec<String>)> = HashMap::new();
+    let mut acc: HashMap<String, AuthorTally> = HashMap::new();
     for r in &repos {
         for res in resolve(r, ids, f, false) {
             let mut added = 0.0;
@@ -718,9 +745,13 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
             if !hit {
                 continue;
             }
-            let e = acc
-                .entry(res.author().to_string())
-                .or_insert((0.0, 0.0, 0.0, res.assist, Vec::new()));
+            let e = acc.entry(res.author().to_string()).or_insert((
+                0.0,
+                0.0,
+                0.0,
+                res.assist,
+                Vec::new(),
+            ));
             e.0 += 1.0;
             e.1 += added;
             e.2 += removed;
@@ -731,8 +762,12 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
             }
         }
     }
-    let mut v: Vec<(String, (f64, f64, f64, AssistKind, Vec<String>))> = acc.into_iter().collect();
-    v.sort_by(|a, b| b.1 .0.partial_cmp(&a.1 .0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut v: Vec<(String, AuthorTally)> = acc.into_iter().collect();
+    v.sort_by(|a, b| {
+        b.1 .0
+            .partial_cmp(&a.1 .0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let rows: Vec<Vec<Cell>> = v
         .iter()
@@ -741,7 +776,11 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
             vec![
                 cell_text(name),
                 cell_text(kind.label()),
-                cell_text(&if tools.is_empty() { "—".to_string() } else { tools.join(",") }),
+                cell_text(&if tools.is_empty() {
+                    "—".to_string()
+                } else {
+                    tools.join(",")
+                }),
                 Cell::Int(*c as i64),
                 Cell::Int(*a as i64),
                 Cell::Int(*r as i64),
@@ -778,11 +817,16 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         for res in resolve(r, ids, f, false) {
             let (k, _) = bucket_key(res.commit.days, b);
             keys.push(k);
-            *buckets.entry((res.assist.label().to_string(), k)).or_insert(0.0) += 1.0;
+            *buckets
+                .entry((res.assist.label().to_string(), k))
+                .or_insert(0.0) += 1.0;
         }
     }
     let ax = axis(&keys, b);
-    let names: Vec<String> = AssistKind::all().iter().map(|a| a.label().to_string()).collect();
+    let names: Vec<String> = AssistKind::all()
+        .iter()
+        .map(|a| a.label().to_string())
+        .collect();
     let series = build_series(&buckets, &ax, &names);
     Output::Series {
         title: "Authorship over time".into(),
@@ -808,7 +852,11 @@ fn resolve_repo<'a>(cache: &'a Cache, f: &Filter) -> Result<&'a RepoData> {
         1 => Ok(repos[0]),
         _ => bail!(
             "tree views need one repo; got {}. Narrow with --repo",
-            repos.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(", ")
+            repos
+                .iter()
+                .map(|r| r.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     }
 }
@@ -820,7 +868,11 @@ fn resolve_repo<'a>(cache: &'a Cache, f: &Filter) -> Result<&'a RepoData> {
 pub fn build_tree(entries: &[git::TreeEntry], root_path: &str, max_depth: usize) -> TreeNode {
     let root_path = root_path.trim_end_matches('/');
     let mut root = TreeNode {
-        name: if root_path.is_empty() { "/".into() } else { root_path.to_string() },
+        name: if root_path.is_empty() {
+            "/".into()
+        } else {
+            root_path.to_string()
+        },
         dir: true,
         size: 0,
         files: 0,
@@ -860,10 +912,7 @@ pub fn build_tree(entries: &[git::TreeEntry], root_path: &str, max_depth: usize)
         node.files += 1;
     }
 
-    let mut children: Vec<TreeNode> = order
-        .into_iter()
-        .filter_map(|k| index.remove(&k))
-        .collect();
+    let mut children: Vec<TreeNode> = order.into_iter().filter_map(|k| index.remove(&k)).collect();
     children.sort_by(|a, b| b.size.cmp(&a.size));
 
     if max_depth > 1 {
@@ -922,10 +971,23 @@ pub fn tree(
     }
     let root = build_tree(&entries, path, depth);
     Ok(Output::Tree {
-        title: format!("{} — {} @ {}", rd.name, if path.is_empty() { "/" } else { path }, when),
+        title: format!(
+            "{} — {} @ {}",
+            rd.name,
+            if path.is_empty() { "/" } else { path },
+            when
+        ),
         subtitle: match measure {
-            Measure::Bytes => format!("{} files · {}", group(root.files as i64), human_bytes(root.size)),
-            Measure::Sloc => format!("{} files · {} lines", group(root.files as i64), group(root.size as i64)),
+            Measure::Bytes => format!(
+                "{} files · {}",
+                group(root.files as i64),
+                human_bytes(root.size)
+            ),
+            Measure::Sloc => format!(
+                "{} files · {} lines",
+                group(root.files as i64),
+                group(root.size as i64)
+            ),
             Measure::Files => format!("{} files", group(root.files as i64)),
         },
         // The snapshot commit, which is not HEAD whenever --at is used.

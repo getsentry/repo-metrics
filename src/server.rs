@@ -38,8 +38,14 @@ fn read_pid() -> Option<i32> {
         .and_then(|s| s.trim().parse::<i32>().ok())
 }
 
-
-pub fn run(port: u16, daemon: bool, stop: bool, status: bool, refresh: u64, no_open: bool) -> Result<()> {
+pub fn run(
+    port: u16,
+    daemon: bool,
+    stop: bool,
+    status: bool,
+    refresh: u64,
+    no_open: bool,
+) -> Result<()> {
     std::fs::create_dir_all(cache_dir())?;
 
     if stop {
@@ -55,7 +61,9 @@ pub fn run(port: u16, daemon: bool, stop: bool, status: bool, refresh: u64, no_o
     }
     if status {
         match read_pid() {
-            Some(pid) if pid_alive(pid) => println!("running (pid {pid}) — log: {}", log_file().display()),
+            Some(pid) if pid_alive(pid) => {
+                println!("running (pid {pid}) — log: {}", log_file().display())
+            }
             _ => println!("not running"),
         }
         return Ok(());
@@ -162,7 +170,10 @@ fn spawn_refresher(state: Arc<State>, secs: u64) {
         std::thread::sleep(Duration::from_secs(secs));
         let paths: Vec<(String, String)> = {
             let c = state.cache.read().unwrap();
-            c.repos.iter().map(|r| (r.path.clone(), r.head.clone())).collect()
+            c.repos
+                .iter()
+                .map(|r| (r.path.clone(), r.head.clone()))
+                .collect()
         };
         let mut changed = false;
         for (path, known_head) in paths {
@@ -247,7 +258,7 @@ fn respond(mut s: TcpStream, code: &str, ctype: &str, body: &str) -> Result<()> 
     let head = format!(
         "HTTP/1.1 {code}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n\
          Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.as_bytes().len()
+        body.len()
     );
     s.write_all(head.as_bytes())?;
     s.write_all(body.as_bytes())?;
@@ -311,7 +322,10 @@ fn handle(stream: TcpStream, state: Arc<State>) -> Result<()> {
                 Ok(o) => {
                     let mut v = serde_json::to_value(&o).unwrap_or(serde_json::Value::Null);
                     if let Some(m) = v.as_object_mut() {
-                        m.insert("ms".into(), serde_json::json!(t.elapsed().as_secs_f64() * 1000.0));
+                        m.insert(
+                            "ms".into(),
+                            serde_json::json!(t.elapsed().as_secs_f64() * 1000.0),
+                        );
                         m.insert(
                             "generation".into(),
                             serde_json::json!(state.generation.load(Ordering::SeqCst)),
@@ -338,7 +352,9 @@ fn getf(q: &HashMap<String, String>, k: &str, d: f64) -> f64 {
     q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d)
 }
 fn opt(q: &HashMap<String, String>, k: &str) -> Option<String> {
-    q.get(k).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    q.get(k)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn bucket_of(s: &str) -> Bucket {

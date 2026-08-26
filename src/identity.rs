@@ -115,42 +115,106 @@ const DEFAULTS: &[(&str, &str, &str, ToolKind)] = &[
     ("name_prefix", "sentry-autofix", "seer", ToolKind::Agent),
     ("name_prefix", "sentry-ai-autofix", "seer", ToolKind::Agent),
     ("name_prefix", "sentry-junior", "jr", ToolKind::Agent),
-
     // --- automation that does not write code ---------------------------------
     ("github_user_id", "49699333", "dependabot", ToolKind::Infra),
     ("github_user_id", "66042841", "getsantry", ToolKind::Infra),
     ("github_user_id", "212413796", "devinfra", ToolKind::Infra),
-    ("github_user_id", "180476844", "sentry-release", ToolKind::Infra),
-    ("github_user_id", "57668832", "license-bump", ToolKind::Infra),
-    ("github_user_id", "41898282", "github-actions", ToolKind::Infra),
+    (
+        "github_user_id",
+        "180476844",
+        "sentry-release",
+        ToolKind::Infra,
+    ),
+    (
+        "github_user_id",
+        "57668832",
+        "license-bump",
+        ToolKind::Infra,
+    ),
+    (
+        "github_user_id",
+        "41898282",
+        "github-actions",
+        ToolKind::Infra,
+    ),
     ("github_user_id", "200264868", "semgrep", ToolKind::Infra),
     // Reverting is not authoring, despite the name.
     ("github_user_id", "2129822", "seer-revert", ToolKind::Infra),
-    ("name_prefix", "sentry-seer-fast-revert", "seer-revert", ToolKind::Infra),
+    (
+        "name_prefix",
+        "sentry-seer-fast-revert",
+        "seer-revert",
+        ToolKind::Infra,
+    ),
     // A deterministic fixer rather than an LLM.
-    ("github_user_id", "260785270", "fix-it-felix", ToolKind::Infra),
-    ("name_prefix", "fix-it-felix", "fix-it-felix", ToolKind::Infra),
+    (
+        "github_user_id",
+        "260785270",
+        "fix-it-felix",
+        ToolKind::Infra,
+    ),
+    (
+        "name_prefix",
+        "fix-it-felix",
+        "fix-it-felix",
+        ToolKind::Infra,
+    ),
     // getsentry's own automation commits under two addresses and two spellings.
     ("email", "bot@sentry.io", "getsentry-bot", ToolKind::Infra),
-    ("email", "bot@getsentry.com", "getsentry-bot", ToolKind::Infra),
-    ("name_prefix", "getsentry-bot", "getsentry-bot", ToolKind::Infra),
-    ("name_prefix", "sentry bot", "getsentry-bot", ToolKind::Infra),
+    (
+        "email",
+        "bot@getsentry.com",
+        "getsentry-bot",
+        ToolKind::Infra,
+    ),
+    (
+        "name_prefix",
+        "getsentry-bot",
+        "getsentry-bot",
+        ToolKind::Infra,
+    ),
+    (
+        "name_prefix",
+        "sentry bot",
+        "getsentry-bot",
+        ToolKind::Infra,
+    ),
     ("name_prefix", "getsantry", "getsantry", ToolKind::Infra),
     ("name_prefix", "dependabot", "dependabot", ToolKind::Infra),
     ("name_prefix", "devinfra", "devinfra", ToolKind::Infra),
     ("name_prefix", "renovate", "renovate", ToolKind::Infra),
-    ("name_prefix", "github-actions", "github-actions", ToolKind::Infra),
+    (
+        "name_prefix",
+        "github-actions",
+        "github-actions",
+        ToolKind::Infra,
+    ),
     ("name_prefix", "semgrep", "semgrep", ToolKind::Infra),
     // Security scanners: "Snyk bot" has no [bot] suffix and would otherwise read
     // as a person.
     ("email_domain", "snyk.io", "snyk", ToolKind::Infra),
     ("name_prefix", "snyk", "snyk", ToolKind::Infra),
-    ("name_prefix", "sentry-release-bot", "sentry-release", ToolKind::Infra),
-    ("name_prefix", "sentry-update-license", "license-bump", ToolKind::Infra),
+    (
+        "name_prefix",
+        "sentry-release-bot",
+        "sentry-release",
+        ToolKind::Infra,
+    ),
+    (
+        "name_prefix",
+        "sentry-update-license",
+        "license-bump",
+        ToolKind::Infra,
+    ),
     // The Sentry GitHub App identity, confirmed as an AI agent. It opens fix PRs
     // under its own name with the affected code owners credited as co-authors, so
     // the humans on those commits are reviewers rather than the ones who wrote it.
-    ("github_user_id", "39604003", "sentry-agent", ToolKind::Agent),
+    (
+        "github_user_id",
+        "39604003",
+        "sentry-agent",
+        ToolKind::Agent,
+    ),
 ];
 
 pub fn config_path() -> PathBuf {

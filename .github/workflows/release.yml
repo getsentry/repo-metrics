@@ -1,0 +1,125 @@
+name: Release
+
+# On demand only. Building a release on every push to main would publish
+# artifacts nobody asked for and burn a tag each time.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to release, e.g. v0.1.0'
+        required: true
+        type: string
+      draft:
+        description: 'Create as a draft, so it can be reviewed before publishing'
+        required: false
+        default: true
+        type: boolean
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: verify version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match Cargo.toml
+        run: |
+          crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          want="${{ inputs.tag }}"
+          if [ "${want#v}" != "$crate" ]; then
+            echo "::error::tag ${want} does not match Cargo.toml version ${crate}"
+            echo "Bump the version in Cargo.toml, or release v${crate}."
+            exit 1
+          fi
+          echo "releasing v${crate}"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Native runners for each target, so nothing needs cross-compiling.
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Smoke test
+        run: B=target/${{ matrix.target }}/release/repo-metrics ./scripts/smoke.sh
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          name="repo-metrics-${{ inputs.tag }}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/repo-metrics" "dist/$name/"
+          cp README.md LICENSE "dist/$name/"
+          tar -czf "$name.tar.gz" -C dist "$name"
+          mv "$name.tar.gz" dist/
+          # Ubuntu ships sha256sum, macOS ships shasum; checksum from inside dist
+          # so the file records a bare name rather than a build path.
+          cd dist
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          else
+            shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          fi
+          cat "$name.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -la dist
+          args=(--title "${{ inputs.tag }}" --target "${{ github.sha }}" --generate-notes)
+          if [ "${{ inputs.draft }}" = "true" ]; then args+=(--draft); fi
+          if [ "${{ inputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
+          gh release create "${{ inputs.tag }}" "${args[@]}" dist/*

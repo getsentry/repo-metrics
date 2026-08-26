@@ -105,7 +105,13 @@ fn require_tool(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn build_plist(exe: &str, interval: u64, dir: &Option<String>, jobs: usize, at_load: bool) -> String {
+fn build_plist(
+    exe: &str,
+    interval: u64,
+    dir: &Option<String>,
+    jobs: usize,
+    at_load: bool,
+) -> String {
     let log = refresh::log_path();
     let log = log.display().to_string();
     let mut args = vec![
@@ -253,7 +259,11 @@ pub fn run(opts: Opts) -> Result<()> {
         // than launchctl's output.
         if let Ok(p) = std::fs::read_to_string(&path) {
             if let Some(i) = p.split("<key>StartInterval</key>").nth(1) {
-                if let Some(v) = i.split("<integer>").nth(1).and_then(|x| x.split('<').next()) {
+                if let Some(v) = i
+                    .split("<integer>")
+                    .nth(1)
+                    .and_then(|x| x.split('<').next())
+                {
                     let secs: u64 = v.trim().parse().unwrap_or(0);
                     println!("interval every {}", human_secs(secs));
                 }

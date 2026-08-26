@@ -1,9 +1,7 @@
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
-use crossterm::terminal::{
-    self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
-};
+use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute, queue};
 use std::io::{stdout, IsTerminal, Write};
 
@@ -124,7 +122,12 @@ pub fn pick(title: &str, hint: &str, items: &mut [Item]) -> Result<Option<Vec<us
         )?;
 
         // --- filter line ---
-        queue!(out, SetForegroundColor(Color::DarkGrey), Print("filter "), ResetColor)?;
+        queue!(
+            out,
+            SetForegroundColor(Color::DarkGrey),
+            Print("filter "),
+            ResetColor
+        )?;
         if filter.is_empty() {
             queue!(
                 out,
@@ -191,7 +194,11 @@ pub fn pick(title: &str, hint: &str, items: &mut [Item]) -> Result<Option<Vec<us
             let badge = it.note.as_deref().unwrap_or("");
             // Widest badge any row can carry, so present and absent badges do not
             // shift the metadata column relative to each other.
-            let badge_w = if items.iter().any(|i| i.note.is_some()) { 12 } else { 0 };
+            let badge_w = if items.iter().any(|i| i.note.is_some()) {
+                12
+            } else {
+                0
+            };
             let meta_w = it.meta.chars().count() + 2;
             // The name is the thing being chosen, so it keeps the space. Metadata is
             // dropped entirely on a narrow terminal rather than squeezing the name
@@ -204,7 +211,11 @@ pub fn pick(title: &str, hint: &str, items: &mut [Item]) -> Result<Option<Vec<us
                 queue!(out, SetAttribute(Attribute::Bold))?;
             }
             let name = truncate(&it.label, name_w);
-            let name = if show_meta { pad_to(&name, name_w) } else { name };
+            let name = if show_meta {
+                pad_to(&name, name_w)
+            } else {
+                name
+            };
             queue!(out, Print(name), SetAttribute(Attribute::Reset))?;
 
             if badge_w > 0 {
@@ -228,7 +239,12 @@ pub fn pick(title: &str, hint: &str, items: &mut [Item]) -> Result<Option<Vec<us
 
         // --- footer ---
         let more = if visible.len() > view_h {
-            format!("  ({}–{} of {})", scroll + 1, (scroll + view_h).min(visible.len()), visible.len())
+            format!(
+                "  ({}–{} of {})",
+                scroll + 1,
+                (scroll + view_h).min(visible.len()),
+                visible.len()
+            )
         } else {
             String::new()
         };
@@ -248,7 +264,9 @@ pub fn pick(title: &str, hint: &str, items: &mut [Item]) -> Result<Option<Vec<us
 
         // --- input ---
         match event::read()? {
-            Event::Key(KeyEvent { code, modifiers, .. }) => {
+            Event::Key(KeyEvent {
+                code, modifiers, ..
+            }) => {
                 let ctrl = modifiers.contains(KeyModifiers::CONTROL);
                 match code {
                     KeyCode::Esc => return Ok(None),
@@ -344,7 +362,11 @@ pub fn prompt(question: &str, default: &str) -> Result<String> {
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
     let a = line.trim();
-    Ok(if a.is_empty() { default.to_string() } else { a.to_string() })
+    Ok(if a.is_empty() {
+        default.to_string()
+    } else {
+        a.to_string()
+    })
 }
 
 pub fn ago(days: f64) -> String {

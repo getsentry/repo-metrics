@@ -111,7 +111,11 @@ pub fn rev_before(repo: &Path, date: &str) -> Result<Option<String>> {
     let before = format!("--before={date}");
     let out = git(repo, &["rev-list", "-1", &before, "HEAD"])?;
     let s = out.trim();
-    Ok(if s.is_empty() { None } else { Some(s.to_string()) })
+    Ok(if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    })
 }
 
 pub struct TreeEntry {

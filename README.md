@@ -9,6 +9,9 @@ for you.
 
 ## Install
 
+Grab a build from the [releases page](https://github.com/ryan953/repo-metrics/releases)
+— macOS on Apple silicon or Intel, and Linux on x86_64 — or build it yourself:
+
 ```bash
 cargo build --release
 install -m 755 target/release/repo-metrics ~/.local/bin/
@@ -317,12 +320,33 @@ beats a name prefix, and a longer prefix beats a shorter one.
 
 ```bash
 cargo build --release
+./scripts/smoke.sh              # every view against a real repo (this one, by default)
 ./scripts/check.sh              # command output, not just exit codes
 python3 scripts/check-picker.py # drives the interactive picker through a pty
 ```
 
-`check.sh` is offline. The picker check needs `gh` and the network, so it is
-separate.
+`smoke.sh` needs nothing but a git checkout, so CI runs it against its own. It
+analyses the repository it is handed, which means there is always real history to
+work with. `check.sh` asserts against repos that have to be ingested first. The
+picker check needs `gh` and the network.
+
+CI runs formatting, clippy with warnings denied, a release build, and the smoke
+test on every push and pull request.
+
+### Cutting a release
+
+Releases are built on demand, never on a push, so a merge to main doesn't publish
+anything. Run the **Release** workflow from the Actions tab with a version tag:
+
+```
+tag:        v0.1.0        must match the version in Cargo.toml
+draft:      true          the default; review before publishing
+prerelease: false
+```
+
+It builds and smoke-tests on each target natively, then attaches a `.tar.gz` and a
+`.sha256` per platform to a release created against the commit it ran on. A tag
+that disagrees with `Cargo.toml` fails before anything is built.
 
 ## Files
 
@@ -347,3 +371,7 @@ The server is loopback-only, so there's no link to send anyone. Use
 
 Freshness is whenever you last ran `ingest` or `refresh`, or whatever the
 scheduled job has picked up.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
