@@ -317,8 +317,12 @@ beats a name prefix, and a longer prefix beats a shorter one.
 
 ```bash
 cargo build --release
-./scripts/check.sh      # checks command output, not just exit codes
+./scripts/check.sh              # command output, not just exit codes
+python3 scripts/check-picker.py # drives the interactive picker through a pty
 ```
+
+`check.sh` is offline. The picker check needs `gh` and the network, so it is
+separate.
 
 ## Files
 
