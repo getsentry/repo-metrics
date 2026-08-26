@@ -13,7 +13,7 @@ chk "assist header"     1 "Authorship over time"  $B assist --repo sentry --sinc
 chk "assist bands"      4 "commits$"              $B assist --repo sentry --since 2026-06-01
 chk "hotspots header"   1 "Fastest-moving"        $B hotspots --repo sentry --since 1y --top 3
 chk "hotspots rows"     3 "^  [a-z.]"             $B hotspots --repo sentry --since 1y --top 3
-chk "tree header"       1 "files ·"               $B tree --repo sentry --depth 1
+chk "tree header"       1 "^[0-9,]* files$"               $B tree --repo sentry --depth 1
 chk "timeseries header" 1 "Commits over time"     $B timeseries --repo sentry --by month --since 1y
 chk "authors header"    1 "^Authors$"             $B authors --repo sentry --top 5
 chk "compare header"    1 "^Compare"              $B compare 2025-H2 2026-H1 --repo sentry
@@ -32,12 +32,41 @@ $B hotspots --repo sentry --since 1y --format json 2>/dev/null | python3 -c 'imp
 $B hotspots --repo sentry --since 1y --format html -o /tmp/r.html >/dev/null 2>&1
 node -e 'const h=require("fs").readFileSync("/tmp/r.html","utf8");const m=h.match(/<script>([\s\S]*?)<\/script>/);new Function(m[1]);' || { echo "  FAIL html js"; fail=1; }
 [ "$(grep -c '<title>' /tmp/r.html)" = "1" ] || { echo "  FAIL html duplicated"; fail=1; }
+# Header links: repo names go to the forge, date boundaries to real commits.
+$B hotspots --repo sentry --since 2026-05-28 --until 2026-06-30 --format json 2>/dev/null \
+  | python3 -c '
+import json,sys
+d=json.load(sys.stdin); sc=d.get("scope") or {}
+assert sc.get("repos") and sc["repos"][0].get("url"), "repo link missing"
+for k in ("since","until"):
+    assert sc.get(k,{}).get("url"), k+" commit link missing"
+' || { echo "  FAIL header scope links"; fail=1; }
+
+# Directory rows carry drill targets; compare must not mark its summary rows.
+$B hotspots --repo sentry --since 1y --format json 2>/dev/null \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("drill") and any(d["drill"]), "no drill targets"' \
+  || { echo "  FAIL hotspots drill targets"; fail=1; }
+$B compare 2025-H2 2026-H1 --repo sentry --format json 2>/dev/null \
+  | python3 -c '
+import json,sys
+d=json.load(sys.stdin); dr=d.get("drill") or []
+assert dr and dr[0] is None, "summary rows should not be drillable"
+assert any(x for x in dr), "no folder rows drillable"
+' || { echo "  FAIL compare drill targets"; fail=1; }
+
+# Folder sizes must support all three measures and report which one it used.
+for m in files sloc bytes; do
+  $B tree --repo sentry --depth 1 --measure $m --format json 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['measure']=='$m', d['measure']" \
+    || { echo "  FAIL tree --measure $m"; fail=1; }
+done
+
 # The web app keeps its state in the URL so views can be bookmarked. Only checked
 # when a server happens to be running; check.sh does not start one.
 PORT="${PORT:-7777}"
 if curl -s -o /dev/null --max-time 2 "localhost:$PORT/" 2>/dev/null; then
   page=$(curl -s "localhost:$PORT/")
-  for fn in readUrl syncUrl popstate; do
+  for fn in readUrl syncUrl popstate scopeHtml drillBar __drill; do
     echo "$page" | grep -q "$fn" || { echo "  FAIL app lost $fn (URL state)"; fail=1; }
   done
   code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:$PORT/?view=hotspots&repo=x&since=90d")

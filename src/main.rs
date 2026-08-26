@@ -161,6 +161,9 @@ enum Cmd {
         subpath: String,
         #[arg(long, default_value = "1")]
         depth: usize,
+        /// What folder size means: files, sloc, or bytes
+        #[arg(long, value_enum, default_value = "files")]
+        measure: Measure,
         #[command(flatten)]
         scope: Scope,
     },
@@ -364,6 +367,7 @@ fn main() -> Result<()> {
                 title: "Ingested repositories".into(),
                 subtitle: cache_path().display().to_string(),
                 source: None,
+        scope: None,
                 columns: vec![
                     "repo".into(),
                     "commits".into(),
@@ -373,6 +377,7 @@ fn main() -> Result<()> {
                     "head".into(),
                 ],
                 bar_column: None,
+                drill: Vec::new(),
                 rows,
             };
             print!("{}", render_term(&o));
@@ -412,10 +417,10 @@ fn main() -> Result<()> {
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Tree { at, subpath, depth, scope } => {
+        Cmd::Tree { at, subpath, depth, measure, scope } => {
             let (c, _) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth)?;
+            let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth, measure)?;
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }

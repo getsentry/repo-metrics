@@ -417,6 +417,11 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
             opt(q, "at").as_deref(),
             &opt(q, "subpath").unwrap_or_default(),
             depth.max(1),
+            match q.get("measure").map(|s| s.as_str()) {
+                Some("sloc") => Measure::Sloc,
+                Some("bytes") => Measure::Bytes,
+                _ => Measure::Files,
+            },
         )?,
         other => bail!("unknown view {other:?}"),
     };
@@ -467,8 +472,8 @@ const VIEWS=[
   ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','split','top'],{{}}],
   ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','depth','top'],{{depth:'1'}}],
   ['hotspots',  'Fastest-moving',      ['repo','since','until','path','depth','top'],{{depth:'2',top:'20'}}],
-  ['tree',      'Folder sizes',        ['repo','at','subpath','depth'],{{depth:'2'}}],
-  ['compare',   'Compare periods',     ['repo','a','b','depth','top'],{{depth:'1'}}],
+  ['tree',      'Folder sizes',        ['repo','at','subpath','measure','depth'],{{depth:'2'}}],
+  ['compare',   'Compare periods',     ['repo','a','b','path','depth','top'],{{depth:'1'}}],
   ['flags',     'Interesting periods', ['repo','since','until','path','depth','z','min_churn','top'],{{depth:'1',top:'30'}}],
   ['assist',    'Human vs agent',      ['repo','since','until','path','by'],{{by:'month'}}],
   ['authors',   'Authors',             ['repo','since','until','path','top'],{{top:'25'}}],
@@ -488,6 +493,7 @@ const FIELDS={{
   by:    {{t:'select',label:'bucket',opts:['day','week','month'],def:'week'}},
   metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
+  measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},
   top:   {{t:'select',label:'top',opts:['5','8','12','20','30','50'],def:'12'}},
   z:     {{t:'text',label:'z >',ph:'2.5',def:'2.5'}},
@@ -556,6 +562,18 @@ function params(){{
   return p.toString();
 }}
 
+// Folder sizes navigates its own subtree; the churn views filter by path and must
+// also deepen the rollup, which counts folders from the repo root.
+function drillField(){{ return view==='tree'?'subpath':'path'; }}
+window.__drill=target=>{{
+  state[drillField()]=target;
+  if(view!=='tree'){{
+    const segs=target?target.split('/').filter(Boolean).length:0;
+    state.depth=String(segs+1);
+  }}
+  load(true);   // a drill is a navigation, so Back undoes it
+}};
+
 let inflight=null;
 async function load(push){{
   syncUrl(!!push);
@@ -569,7 +587,7 @@ async function load(push){{
     window.__data=d;
     window.__rerender=()=>render(el('chart'),d);
     window.__rerender();
-    el('scope').textContent=d.subtitle||'';
+    el('scope').innerHTML=scopeHtml(d);
     el('src').innerHTML=sourceHtml(d);
     el('timing').textContent=`${{d.title}} · ${{d.ms.toFixed(0)}} ms`;
     // Bookmarks take their name from the title, so make it say what the view is.

@@ -145,6 +145,45 @@ pub fn ls_tree(repo: &Path, sha: &str) -> Result<Vec<TreeEntry>> {
     Ok(entries)
 }
 
+/// Lines per file at a commit, via `git grep -c`. Git does the counting and the
+/// binary detection itself and parallelises internally, which makes this far
+/// cheaper than streaming every blob out and counting here.
+///
+/// Bytes are the wrong measure for a code repo — translation catalogues and
+/// vendored assets dominate a byte-weighted tree while contributing no code.
+pub fn sloc(repo: &Path, sha: &str) -> Result<std::collections::HashMap<String, u64>> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        // -I skips binary files; ^ matches every line.
+        .args(["grep", "-c", "-I", "-E", "^", sha])
+        .output()
+        .context("failed to run git grep")?;
+    // Exit code 1 just means nothing matched, which is a legitimately empty tree.
+    if !out.status.success() && out.status.code() != Some(1) {
+        bail!(
+            "git grep failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let prefix = format!("{sha}:");
+    let mut map = std::collections::HashMap::new();
+    for line in text.lines() {
+        let rest = match line.strip_prefix(&prefix) {
+            Some(r) => r,
+            None => continue,
+        };
+        // Split from the right: a path may contain a colon, the count cannot.
+        if let Some((path, n)) = rest.rsplit_once(':') {
+            if let Ok(n) = n.parse::<u64>() {
+                map.insert(path.to_string(), n);
+            }
+        }
+    }
+    Ok(map)
+}
+
 pub fn canonical(path: &str) -> Result<PathBuf> {
     std::fs::canonicalize(path).with_context(|| format!("no such path: {path}"))
 }

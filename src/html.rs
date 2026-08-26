@@ -49,6 +49,18 @@ tbody tr:hover{background:var(--sunken)}
 .foot{margin-top:1.4rem;font-size:.75rem;color:var(--faint)}
 .foot code{background:var(--surface2);padding:.15rem .4rem;border-radius:4px}
 .src{color:var(--faint);font-size:.8rem}
+.sub a,.src a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--border)}
+.sub a:hover,.src a:hover{border-bottom-color:var(--accent)}
+.sub a:focus-visible,.src a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+.drillbar{display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;font-size:.82rem}
+.drillbar button{font:inherit;font-family:ui-monospace,Menlo,monospace;padding:.15rem .55rem;
+  border:1px solid var(--border);border-radius:5px;background:var(--surface2);color:var(--text);cursor:pointer}
+.drillbar button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.drillbar button:disabled{opacity:.4;cursor:default}
+.drillbar .cur{color:var(--muted)}
+a.dr{color:var(--text);text-decoration:none;border-bottom:1px dotted var(--border);cursor:pointer}
+a.dr:hover{color:var(--accent);border-bottom-color:var(--accent)}
+path.dr{cursor:pointer}
 .src a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--border)}
 .src a:hover{border-bottom-color:var(--accent)}
 .src a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
@@ -162,15 +174,22 @@ function renderSeries(el,d){
 }
 
 function renderTable(el,d){
-  if(!d.rows.length){el.innerHTML='<div class="empty">Nothing matched.</div>';return;}
+  const drill=d.drill||[];
+  const bar=drill.length?drillBar((d.scope&&d.scope.path)||''):'';
+  if(!d.rows.length){el.innerHTML=bar+'<div class="empty">Nothing matched.</div>';wireDrill(el);return;}
   const bc=d.bar_column;
   const isNum=d.columns.map((_,i)=>d.rows.every(r=>typeof r[i]!=='string'));
   let max=0;
   if(bc!==null&&bc!==undefined)for(const r of d.rows)max=Math.max(max,Number(r[bc])||0);
   const head=d.columns.map((c,i)=>`<th class="${isNum[i]?'num':''}">${esc(c)}</th>`).join('')
     +((bc!==null&&bc!==undefined)?'<th></th>':'');
-  const body=d.rows.map(r=>{
-    const tds=r.map((v,i)=>`<td class="${isNum[i]?'num mono':''}">${typeof v==='string'?esc(v):fmt(v)}</td>`).join('');
+  const body=d.rows.map((r,ri)=>{
+    // Only the first cell of a row that names a directory becomes a link;
+    // `compare` mixes summary measures and folders in one table.
+    const tds=r.map((v,i)=>{
+      const cell=(i===0&&drill[ri])?drillLink(drill[ri],String(v)):(typeof v==='string'?esc(v):fmt(v));
+      return `<td class="${isNum[i]?'num mono':''}">${cell}</td>`;
+    }).join('');
     let bar='';
     if(bc!==null&&bc!==undefined){
       const pct=max>0?Math.max((Number(r[bc])||0)/max*100,0):0;
@@ -178,12 +197,18 @@ function renderTable(el,d){
     }
     return `<tr>${tds}${bar}</tr>`;
   }).join('');
-  el.innerHTML=`<div class="tbl-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  el.innerHTML=bar+`<div class="tbl-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+  wireDrill(el);
 }
 
 function renderTree(el,d){
   const root=d.root;
-  if(!root||!root.children||!root.children.length){el.innerHTML='<div class="empty">Nothing to show at this path.</div>';return;}
+  const cur=root&&root.name!=='/'?root.name:'';
+  const bar=drillBar(cur);
+  // "size" holds whichever measure was asked for; only bytes want a unit.
+  const sz=n=>d.measure==='bytes'?bytes(n):(d.measure==='sloc'?fmt(n)+' lines':fmt(n));
+  if(!root||!root.children||!root.children.length){
+    el.innerHTML=bar+'<div class="empty">Nothing to show at this path.</div>';wireDrill(el);return;}
   const SZ=560,R=SZ/2,ring=Math.min(58,R/4);
   let arcs='';
   function arc(cx,cy,r0,r1,a0,a1){
@@ -193,45 +218,50 @@ function renderTree(el,d){
     return `M${x0} ${y0}A${r1} ${r1} 0 ${big} 1 ${x1} ${y1}L${x2} ${y2}A${r0} ${r0} 0 ${big} 0 ${x3} ${y3}Z`;
   }
   let items=[];
-  function walk(nodes,depth,a0,a1,total,ci){
+  function walk(nodes,depth,a0,a1,total,ci,prefix){
     if(depth>3||total<=0)return;
     let a=a0;
     nodes.forEach((c,i)=>{
+      const full=prefix?prefix+'/'+c.name:c.name;
       const span=(c.size/total)*(a1-a0);
       if(span<=0.004)return;   // below ~0.2 degrees is a hairline nobody can hit
       const col=depth===0?color(i%6):color(ci%6);
       const r0=ring*(depth+1), r1=ring*(depth+2);
-      arcs+=`<path d="${arc(R,R,r0,r1,a,a+span)}" fill="${col}"
+      arcs+=`<path class="${c.dir?'dr':''}" d="${arc(R,R,r0,r1,a,a+span)}" fill="${col}"
         fill-opacity="${1-depth*0.22}" stroke="var(--surface)" stroke-width="1.5"
-        data-i="${items.length}" style="cursor:pointer"/>`;
-      items.push({name:c.name,size:c.size,files:c.files,depth});
-      if(c.children&&c.children.length)walk(c.children,depth+1,a,a+span,c.size,depth===0?i:ci);
+        data-i="${items.length}"/>`;
+      items.push({name:c.name,size:c.size,files:c.files,depth,path:full,dir:!!c.dir});
+      if(c.children&&c.children.length)walk(c.children,depth+1,a,a+span,c.size,depth===0?i:ci,full);
       a+=span;
     });
   }
-  walk(root.children,0,-Math.PI/2,Math.PI*1.5,root.size,0);
+  walk(root.children,0,-Math.PI/2,Math.PI*1.5,root.size,0,cur);
 
   const top=root.children.slice(0,12);
-  el.innerHTML=`<div style="display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start">
+  el.innerHTML=bar+`<div style="display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start">
     <svg viewBox="0 0 ${SZ} ${SZ}" style="max-width:${SZ}px;flex:1 1 340px">${arcs}
       <text x="${R}" y="${R-2}" text-anchor="middle" font-size="15" fill="var(--text)">${esc(root.name)}</text>
       <text x="${R}" y="${R+16}" text-anchor="middle" font-size="12" fill="var(--faint)" class="mono">${fmt(root.files)} files</text>
     </svg>
     <div style="flex:1 1 300px;min-width:280px">
       <table><thead><tr><th>entry</th><th class="num">size</th><th class="num">files</th><th class="num">%</th></tr></thead>
-      <tbody>${top.map((c,i)=>`<tr><td><span style="color:${color(i%6)}">■</span> ${esc(c.name)}</td>
-        <td class="num mono">${bytes(c.size)}</td><td class="num mono">${fmt(c.files)}</td>
+      <tbody>${top.map((c,i)=>`<tr><td><span style="color:${color(i%6)}">■</span> ${
+          c.dir?drillLink(cur?cur+'/'+c.name:c.name,c.name):esc(c.name)}</td>
+        <td class="num mono">${sz(c.size)}</td><td class="num mono">${fmt(c.files)}</td>
         <td class="num mono">${(c.size/root.size*100).toFixed(1)}%</td></tr>`).join('')}</tbody></table>
     </div></div>`;
 
   el.querySelectorAll('path').forEach(p=>{
     p.addEventListener('mousemove',e=>{
       const it=items[+p.dataset.i];
-      showTip(`<b>${esc(it.name)}</b><div>${bytes(it.size)} · ${fmt(it.files)} files</div>
+      showTip(`<b>${esc(it.name)}</b><div>${sz(it.size)} · ${fmt(it.files)} files</div>
         <div style="opacity:.65">${(it.size/root.size*100).toFixed(1)}% of ${esc(root.name)}</div>`,e.clientX,e.clientY);
     });
     p.addEventListener('mouseleave',hideTip);
+    const it=items[+p.dataset.i];
+    if(it&&it.dir&&drillable())p.addEventListener('click',()=>window.__drill(it.path));
   });
+  wireDrill(el);
 }
 function bytes(b){const U=['B','KB','MB','GB','TB'];let v=b,i=0;
   while(v>=1024&&i<U.length-1){v/=1024;i++;}
@@ -244,6 +274,55 @@ function sourceHtml(d){
   const sha=s.url?`<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.short)}</a>`
                  :`<span class="mono">${esc(s.short)}</span>`;
   return `<span class="src">${esc(s.repo)} @ <span class="mono">${sha}</span></span>`;
+}
+
+// The header as links rather than a formatted string: repo names go to the forge,
+// and each date boundary goes to the commit it actually resolves to.
+function scopeHtml(d){
+  const sc=d&&d.scope;
+  if(!sc)return esc((d&&d.subtitle)||'');
+  const repos=sc.repos.map(r=>r.url
+    ?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a>`
+    :esc(r.name)).join(', ')||'no repos';
+  const dl=x=>{
+    if(!x)return '';
+    if(!x.url)return esc(x.date);
+    const why=x.approximate?'nearest commit inside the range':'commit on this date';
+    return `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.sha.slice(0,8))} — ${why}">`
+      +esc(x.date)+(x.approximate?'*':'')+'</a>';
+  };
+  const path=sc.path?` · ${esc(sc.path)}`:'';
+  // A tree is a snapshot at one commit, not a range, so a date range would be
+  // meaningless here; its subtitle carries the measure summary instead.
+  if(d.kind==='tree'){
+    return `${repos}${path}${d.subtitle?' · '+esc(d.subtitle):''}`;
+  }
+  let when='full history';
+  if(sc.since&&sc.until)when=`${dl(sc.since)} → ${dl(sc.until)}`;
+  else if(sc.since)when=`since ${dl(sc.since)}`;
+  else if(sc.until)when=`through ${dl(sc.until)}`;
+  return `${repos} · ${when}${path}`;
+}
+
+// Drilling is only wired up in the served app. A standalone exported page has no
+// server to ask, so folders render as plain text there.
+function drillable(){ return typeof window.__drill==='function'; }
+function parentOf(p){ const i=p.lastIndexOf('/'); return i<0?'':p.slice(0,i); }
+function drillBar(cur){
+  if(!drillable())return '';
+  return `<div class="drillbar"><button type="button" data-up="${esc(parentOf(cur))}"${cur?'':' disabled'}
+    title="up one folder">..</button><span class="cur mono">${esc(cur||'(repo root)')}</span></div>`;
+}
+function drillLink(path,label){
+  if(!drillable()||!path)return esc(label);
+  return `<a class="dr" href="#" data-drill="${esc(path)}">${esc(label)}</a>`;
+}
+function wireDrill(el){
+  if(!drillable())return;
+  el.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>window.__drill(b.dataset.up));
+  el.querySelectorAll('[data-drill]').forEach(a=>a.onclick=e=>{
+    e.preventDefault(); window.__drill(a.dataset.drill);
+  });
 }
 
 function render(el,d){
@@ -277,7 +356,7 @@ pub fn page(o: &Output) -> String {
 <style>{css}</style></head>
 <body><div class="wrap">
 <h1>{title}</h1>
-<div class="head"><p class="sub">{sub}</p><span id="src"></span></div>
+<div class="head"><p class="sub" id="scope">{sub}</p><span id="src"></span></div>
 <div class="card"><div id="chart"></div></div>
 <p class="foot">Generated by <code>{cmd}</code></p>
 </div>
@@ -286,6 +365,7 @@ const DATA={data};
 window.__rerender=()=>{{
   render(document.getElementById('chart'),DATA);
   document.getElementById('src').innerHTML=sourceHtml(DATA);
+  document.getElementById('scope').innerHTML=scopeHtml(DATA);
 }};
 window.__rerender();
 </script></body></html>"##,

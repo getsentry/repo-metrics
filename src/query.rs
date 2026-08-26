@@ -33,6 +33,28 @@ impl Metric {
     }
 }
 
+/// What a folder's "size" means. Bytes are free but misleading for code — a
+/// translation catalogue or a vendored asset outweighs a whole subsystem.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
+pub enum Measure {
+    /// Number of files
+    Files,
+    /// Lines of text, binaries excluded
+    Sloc,
+    /// Bytes on disk
+    Bytes,
+}
+
+impl Measure {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Measure::Files => "files",
+            Measure::Sloc => "sloc",
+            Measure::Bytes => "bytes",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
 pub enum Split {
     None,
@@ -361,6 +383,66 @@ pub fn stamp_source(o: &mut Output, cache: &Cache, f: &Filter) {
     let repos = select_repos(cache, f);
     if let [r] = repos.as_slice() {
         o.set_source_if_unset(Some(SourceRef::new(&r.name, &r.head, &r.web)));
+    }
+    o.set_scope(Some(build_scope(&repos, f)));
+}
+
+/// The commit a date boundary lands on: the earliest commit of that day for the
+/// start of a range, the latest for the end. When nothing was committed on the day
+/// itself, the nearest commit *inside* the range is used instead, since that is the
+/// one the filter actually begins or ends at.
+fn boundary_commit(repo: &RepoData, day: i32, earliest: bool) -> Option<(&Commit, bool)> {
+    let on_day = repo.commits.iter().filter(|c| c.days == day);
+    let exact = if earliest {
+        on_day.min_by_key(|c| c.ts)
+    } else {
+        on_day.max_by_key(|c| c.ts)
+    };
+    if let Some(c) = exact {
+        return Some((c, false));
+    }
+    let near = if earliest {
+        repo.commits.iter().filter(|c| c.days > day).min_by_key(|c| (c.days, c.ts))
+    } else {
+        repo.commits.iter().filter(|c| c.days < day).max_by_key(|c| (c.days, c.ts))
+    };
+    near.map(|c| (c, true))
+}
+
+fn date_link(repos: &[&RepoData], day: i32, earliest: bool) -> DateLink {
+    let date = days_to_date(day).to_string();
+    // Only one repo can supply a commit for a date. With several in scope the date
+    // would point at a different commit in each, so it stays plain text.
+    if let [r] = repos {
+        if let Some((c, approximate)) = boundary_commit(r, day, earliest) {
+            return DateLink {
+                date,
+                sha: Some(c.sha.clone()),
+                url: r.web.as_ref().map(|w| format!("{w}/commit/{}", c.sha)),
+                approximate,
+            };
+        }
+    }
+    DateLink {
+        date,
+        sha: None,
+        url: None,
+        approximate: false,
+    }
+}
+
+fn build_scope(repos: &[&RepoData], f: &Filter) -> ScopeRef {
+    ScopeRef {
+        repos: repos
+            .iter()
+            .map(|r| RepoLink {
+                name: r.name.clone(),
+                url: r.web.clone(),
+            })
+            .collect(),
+        since: f.since.map(|d| date_link(repos, d, true)),
+        until: f.until.map(|d| date_link(repos, d, false)),
+        path: f.path.clone(),
     }
 }
 

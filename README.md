@@ -137,6 +137,21 @@ Every view takes `--repo`, `--since`, `--until` and `--path`. Dates can be
 `--depth` controls how many levels deep it goes. `radial` is accepted as an alias
 for it.
 
+`--measure` decides what a folder's size means:
+
+| | |
+|---|---|
+| `files` *(default)* | Number of files |
+| `sloc` | Lines of text, binaries excluded |
+| `bytes` | Bytes on disk |
+
+Bytes flatter whatever is bulky rather than whatever is code. In sentry, the
+translation catalogue under `src/sentry/locale` is 65% of the byte weight and 67%
+of the line count from 90 files, so it swamps a byte- or line-sized tree while
+`files` puts it at under 2% and the real subsystems surface. SLOC comes from
+`git grep -c`, which counts and skips binaries itself and costs about a third of
+a second on a 20,000-file tree.
+
 `repos` lists what's in the cache.
 
 ### Output
@@ -163,6 +178,16 @@ Holds the cache in memory and answers the same queries over HTTP, which makes th
 filters feel direct rather than like submitting a form. It re-checks each repo's
 HEAD periodically and folds in new commits, so a page left open follows the repo
 as you work. Every view links its commit back to the forge.
+
+Repository names in the header link to the forge, and the `since` and `until`
+dates link to the commits they resolve to — the earliest and latest commit of
+that day. A date with no commits on it links to the nearest commit inside the
+range, marked with an asterisk.
+
+Folder sizes, fastest-moving and compare let you click a folder to descend into
+it, with a `..` button above the table to come back up. In the folder view the
+sunburst arcs are clickable too. Drilling is a navigation, so Back undoes it and
+the path lands in the URL like everything else.
 
 Every view keeps its state in the URL, so a chart you've drilled into can be
 bookmarked and comes back exactly as you left it:

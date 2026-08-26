@@ -44,6 +44,7 @@ pub fn timeseries(
         title: format!("Commits over time — {}", m.label()),
         subtitle: range_label(f, &repos),
         source: None,
+        scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: split != Split::None,
@@ -165,6 +166,7 @@ pub fn folders(
         title: format!("Folders over time — {} (depth {depth})", m.label()),
         subtitle: range_label(f, &repos),
         source: None,
+        scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: true,
@@ -249,6 +251,13 @@ pub fn hotspots(
 ) -> Output {
     let repos = select_repos(cache, f);
     let rolled = rollup_dirs(cache, ids, f, depth);
+    // "(root)" is the bucket for files with no directory, not a folder you can
+    // descend into.
+    let drill: Vec<Option<String>> = rolled
+        .iter()
+        .take(top)
+        .map(|(dir, _)| (dir != "(root)").then(|| dir.clone()))
+        .collect();
     let rows: Vec<Vec<Cell>> = rolled
         .iter()
         .take(top)
@@ -267,6 +276,7 @@ pub fn hotspots(
         title: format!("Fastest-moving parts (depth {depth})"),
         subtitle: range_label(f, &repos),
         source: None,
+        scope: None,
         columns: vec![
             "directory".into(),
             "churn".into(),
@@ -276,6 +286,7 @@ pub fn hotspots(
             "authors".into(),
         ],
         bar_column: Some(1),
+        drill: drill,
         rows,
     }
 }
@@ -297,6 +308,7 @@ pub fn compare(
     let fb = Filter { since: Some(b0), until: Some(b1), ..base.clone() };
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
+    let mut drill: Vec<Option<String>> = Vec::new();
     let push = |label: String, x: f64, y: f64, rows: &mut Vec<Vec<Cell>>| {
         let d = y - x;
         let pct = if x > 0.0 { (d / x) * 100.0 } else { 0.0 };
@@ -319,6 +331,8 @@ pub fn compare(
     push("commits an agent wrote".into(), sa.5, sb.5, &mut rows);
     push("  agent-assisted".into(), sa.6, sb.6, &mut rows);
     push("  agent-authored".into(), sa.7, sb.7, &mut rows);
+    // The summary block is measures, not folders; keep drill aligned with rows.
+    drill.resize(rows.len(), None);
 
     // Then the folders that moved most between the two windows.
     let ra: HashMap<String, f64> = rollup_dirs(cache, ids, &fa, depth)
@@ -348,6 +362,7 @@ pub fn compare(
     });
     for (k, x, y) in deltas.into_iter().take(top) {
         push(format!("  {k}"), x, y, &mut rows);
+        drill.push((k != "(root)").then(|| k.clone()));
     }
 
     let repos = select_repos(cache, base);
@@ -358,6 +373,7 @@ pub fn compare(
             range_label(&Filter { since: None, until: None, ..base.clone() }, &repos)
         ),
         source: None,
+        scope: None,
         columns: vec![
             "measure".into(),
             alab,
@@ -366,6 +382,7 @@ pub fn compare(
             "Δ%".into(),
         ],
         bar_column: None,
+        drill: drill,
         rows,
     })
 }
@@ -518,6 +535,7 @@ pub fn flags(
             min_churn as i64
         ),
         source: None,
+        scope: None,
         columns: vec![
             "week".into(),
             "repo".into(),
@@ -527,6 +545,7 @@ pub fn flags(
             "z".into(),
         ],
         bar_column: Some(5),
+        drill: Vec::new(),
         rows,
     }
 }
@@ -587,6 +606,7 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
         title: "Authors".into(),
         subtitle: range_label(f, &repos),
         source: None,
+        scope: None,
         columns: vec![
             "author".into(),
             "kind".into(),
@@ -596,6 +616,7 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
             "removed".into(),
         ],
         bar_column: Some(3),
+        drill: Vec::new(),
         rows,
     }
 }
@@ -619,6 +640,7 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         title: "Authorship over time".into(),
         subtitle: range_label(f, &repos),
         source: None,
+        scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: true,
@@ -648,6 +670,7 @@ pub fn build_tree(entries: &[git::TreeEntry], root_path: &str, max_depth: usize)
     let root_path = root_path.trim_end_matches('/');
     let mut root = TreeNode {
         name: if root_path.is_empty() { "/".into() } else { root_path.to_string() },
+        dir: true,
         size: 0,
         files: 0,
         children: Vec::new(),
@@ -676,6 +699,7 @@ pub fn build_tree(entries: &[git::TreeEntry], root_path: &str, max_depth: usize)
             order.push(key.clone());
             TreeNode {
                 name: seg[0].to_string(),
+                dir: seg.len() > 1,
                 size: 0,
                 files: 0,
                 children: Vec::new(),
@@ -716,6 +740,7 @@ pub fn tree(
     date: Option<&str>,
     path: &str,
     depth: usize,
+    measure: Measure,
 ) -> Result<Output> {
     let rd = resolve_repo(cache, f)?;
     let repo_path = Path::new(&rd.path);
@@ -726,13 +751,36 @@ pub fn tree(
         },
         None => (rd.head.clone(), "HEAD".to_string()),
     };
-    let entries = git::ls_tree(repo_path, &sha)?;
+    let mut entries = git::ls_tree(repo_path, &sha)?;
+    // `size` carries whichever measure was asked for, so the tree builder stays
+    // measure-agnostic and just sums weights.
+    match measure {
+        Measure::Bytes => {}
+        Measure::Files => {
+            for e in entries.iter_mut() {
+                e.size = 1;
+            }
+        }
+        Measure::Sloc => {
+            let lines = git::sloc(repo_path, &sha)?;
+            for e in entries.iter_mut() {
+                // Binaries have no line count; git grep omits them entirely.
+                e.size = lines.get(&e.path).copied().unwrap_or(0);
+            }
+        }
+    }
     let root = build_tree(&entries, path, depth);
     Ok(Output::Tree {
         title: format!("{} — {} @ {}", rd.name, if path.is_empty() { "/" } else { path }, when),
-        subtitle: format!("{} files · {}", group(root.files as i64), human_bytes(root.size)),
+        subtitle: match measure {
+            Measure::Bytes => format!("{} files · {}", group(root.files as i64), human_bytes(root.size)),
+            Measure::Sloc => format!("{} files · {} lines", group(root.files as i64), group(root.size as i64)),
+            Measure::Files => format!("{} files", group(root.files as i64)),
+        },
         // The snapshot commit, which is not HEAD whenever --at is used.
         source: Some(SourceRef::new(&rd.name, &sha, &rd.web)),
+        scope: None,
+        measure: measure.label().to_string(),
         root,
     })
 }

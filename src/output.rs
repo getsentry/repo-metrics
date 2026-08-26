@@ -68,6 +68,10 @@ pub fn group(n: i64) -> String {
 #[derive(Serialize, Clone)]
 pub struct TreeNode {
     pub name: String,
+    /// A directory can be descended into; a file is a leaf. Size and file count
+    /// alone can't tell them apart, since a directory holding one file looks
+    /// identical to that file.
+    pub dir: bool,
     pub size: u64,
     pub files: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -97,6 +101,38 @@ impl SourceRef {
     }
 }
 
+#[derive(Serialize, Clone)]
+pub struct RepoLink {
+    pub name: String,
+    /// None when the repo has no recognisable forge remote.
+    pub url: Option<String>,
+}
+
+/// A date boundary of the active filter, resolved to the commit it actually lands
+/// on so the header can link out to it.
+#[derive(Serialize, Clone)]
+pub struct DateLink {
+    pub date: String,
+    pub sha: Option<String>,
+    pub url: Option<String>,
+    /// True when no commit fell on the date itself and this is the nearest one
+    /// inside the range.
+    pub approximate: bool,
+}
+
+/// The header, as data rather than a formatted string, so each part can carry its
+/// own link.
+#[derive(Serialize, Clone)]
+pub struct ScopeRef {
+    pub repos: Vec<RepoLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<DateLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<DateLink>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Output {
@@ -106,6 +142,8 @@ pub enum Output {
         subtitle: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<SourceRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<ScopeRef>,
         x: Vec<String>,
         series: Vec<Series>,
         stacked: bool,
@@ -116,9 +154,17 @@ pub enum Output {
         subtitle: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<SourceRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<ScopeRef>,
         columns: Vec<String>,
         /// Index of the column to draw an in-cell magnitude bar against.
         bar_column: Option<usize>,
+        /// Parallel to `rows`: the directory each row represents, where the row is
+        /// one that can be drilled into. Rows that aren't directories carry None,
+        /// which is why this isn't just a column index — `compare` mixes summary
+        /// measures and directories in one table.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        drill: Vec<Option<String>>,
         rows: Vec<Vec<Cell>>,
     },
     Tree {
@@ -126,6 +172,10 @@ pub enum Output {
         subtitle: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<SourceRef>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<ScopeRef>,
+        /// What `size` counts: files, sloc or bytes. Drives how it's formatted.
+        measure: String,
         root: TreeNode,
     },
 }
@@ -146,6 +196,17 @@ impl Output {
         };
         if slot.is_none() {
             *slot = s;
+        }
+    }
+
+    pub fn set_scope(&mut self, sc: Option<ScopeRef>) {
+        let slot = match self {
+            Output::Series { scope, .. }
+            | Output::Table { scope, .. }
+            | Output::Tree { scope, .. } => scope,
+        };
+        if slot.is_none() {
+            *slot = sc;
         }
     }
 
@@ -349,7 +410,13 @@ pub fn render_term(o: &Output) -> String {
                 out.push('\n');
             }
         }
-        Output::Tree { root, .. } => {
+        Output::Tree { root, measure, .. } => {
+            // "size" is whichever measure was requested; only bytes want a unit.
+            let fmt_size = |n: u64| match measure.as_str() {
+                "bytes" => human_bytes(n),
+                "sloc" => format!("{} lines", group(n as i64)),
+                _ => group(n as i64),
+            };
             // Names are padded to a common column so sizes and percentages line up
             // however deep the tree goes.
             fn label_width(n: &TreeNode, depth: usize, w: &mut usize) {
@@ -361,7 +428,15 @@ pub fn render_term(o: &Output) -> String {
             let mut lw = 0;
             label_width(root, 0, &mut lw);
 
-            fn walk(n: &TreeNode, depth: usize, total: u64, lw: usize, out: &mut String, st: &Style) {
+            fn walk(
+                n: &TreeNode,
+                depth: usize,
+                total: u64,
+                lw: usize,
+                out: &mut String,
+                st: &Style,
+                fmt_size: &dyn Fn(u64) -> String,
+            ) {
                 let pct = if total > 0 {
                     (n.size as f64 / total as f64) * 100.0
                 } else {
@@ -371,14 +446,14 @@ pub fn render_term(o: &Output) -> String {
                 out.push_str(&format!(
                     "  {}  {}  {}\n",
                     pad(&name, lw, false),
-                    pad(&human_bytes(n.size), 10, true),
+                    pad(&fmt_size(n.size), 14, true),
                     st.dim(&format!("{pct:>5.1}%  {:>7} files", group(n.files as i64)))
                 ));
                 for c in &n.children {
-                    walk(c, depth + 1, total, lw, out, st);
+                    walk(c, depth + 1, total, lw, out, st, fmt_size);
                 }
             }
-            walk(root, 0, root.size, lw, &mut out, &st);
+            walk(root, 0, root.size, lw, &mut out, &st, &fmt_size);
         }
     }
     out.push('\n');
