@@ -497,10 +497,30 @@ const FIELDS={{
 let view='timeseries', gen=0, state={{}};
 const el=id=>document.getElementById(id);
 
+// The URL is the source of truth for what's on screen, so any view can be
+// bookmarked or pasted to someone on the same machine and come back identical.
+function readUrl(){{
+  const q=new URLSearchParams(location.search);
+  const v=q.get('view');
+  if(v&&VIEWS.some(x=>x[0]===v))view=v;
+  // Clear known fields first so going Back actually drops params that are gone.
+  // `__repos` isn't a field, so the repo list survives.
+  for(const k of Object.keys(FIELDS))delete state[k];
+  for(const [k,val] of q){{ if(k!=='view'&&FIELDS[k]!==undefined)state[k]=val; }}
+}}
+
+function syncUrl(push){{
+  const qs='?'+params();
+  if(location.search===qs)return;          // nothing changed, no history entry
+  history[push?'pushState':'replaceState'](null,'',qs);
+}}
+
 function buildTabs(){{
   el('tabs').innerHTML=VIEWS.map(([k,label])=>
     `<button role="tab" data-v="${{k}}" aria-selected="${{k===view}}">${{label}}</button>`).join('');
-  el('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{{view=b.dataset.v;buildTabs();buildControls();load();}});
+  el('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{{
+    view=b.dataset.v;buildTabs();buildControls();load(true);
+  }});
 }}
 
 function buildControls(){{
@@ -509,7 +529,10 @@ function buildControls(){{
     const d=FIELDS[f]; if(!d)return '';
     const val=state[f]!==undefined?state[f]:(viewDef(f)||d.def||'');
     if(d.t==='select'){{
-      const opts=(f==='repo'?state.__repos||[]:d.opts);
+      let opts=(f==='repo'?(state.__repos||[]).slice():d.opts);
+      // Keep an unknown repo from the URL visible rather than silently showing
+      // "all repos" while still querying for it.
+      if(f==='repo'&&val&&!opts.includes(val))opts=[val].concat(opts);
       const list=(f==='repo'?['<option value="">all repos</option>']:[]).concat(
         opts.map(o=>`<option value="${{esc(o)}}"${{String(val)===String(o)?' selected':''}}>${{esc(o)}}</option>`));
       return `<label>${{d.label}}<select data-f="${{f}}">${{list.join('')}}</select></label>`;
@@ -518,7 +541,7 @@ function buildControls(){{
   }}).join('');
   el('controls').querySelectorAll('[data-f]').forEach(inp=>{{
     const ev=inp.tagName==='SELECT'?'change':'change';
-    inp.addEventListener(ev,()=>{{state[inp.dataset.f]=inp.value;load();}});
+    inp.addEventListener(ev,()=>{{state[inp.dataset.f]=inp.value;load(false);}});
   }});
 }}
 
@@ -534,7 +557,8 @@ function params(){{
 }}
 
 let inflight=null;
-async function load(){{
+async function load(push){{
+  syncUrl(!!push);
   const url='/api/view?'+params();
   if(inflight)inflight.abort();
   const ac=new AbortController(); inflight=ac;
@@ -548,6 +572,9 @@ async function load(){{
     el('scope').textContent=d.subtitle||'';
     el('src').innerHTML=sourceHtml(d);
     el('timing').textContent=`${{d.title}} · ${{d.ms.toFixed(0)}} ms`;
+    // Bookmarks take their name from the title, so make it say what the view is.
+    const scope=state.repo?` · ${{state.repo}}`:'';
+    document.title=`${{d.title}}${{scope}} — repo-metrics`;
   }}catch(e){{ if(e.name!=='AbortError') el('chart').innerHTML=`<div class="empty">${{esc(e.message)}}</div>`; }}
 }}
 
@@ -569,7 +596,9 @@ async function poll(){{
   }}
 }}
 
-buildTabs(); buildControls(); poll().then(load); setInterval(poll,5000);
+addEventListener('popstate',()=>{{ readUrl(); buildTabs(); buildControls(); load(false); }});
+
+readUrl(); buildTabs(); buildControls(); poll().then(()=>load(false)); setInterval(poll,5000);
 </script></body></html>"##,
         css = html::CSS,
         js = html::CHART_JS

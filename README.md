@@ -164,6 +164,18 @@ filters feel direct rather than like submitting a form. It re-checks each repo's
 HEAD periodically and folds in new commits, so a page left open follows the repo
 as you work. Every view links its commit back to the forge.
 
+Every view keeps its state in the URL, so a chart you've drilled into can be
+bookmarked and comes back exactly as you left it:
+
+```
+http://127.0.0.1:7777/?view=tree&repo=getsentry/sentry&subpath=src/sentry&at=2025-06-01&depth=2
+```
+
+Switching tabs adds a history entry so Back returns to the previous view;
+adjusting a filter replaces the current one, so a session doesn't fill the
+history with every keystroke. The tab title names the view and repo, which is
+what a bookmark gets called.
+
 It binds to 127.0.0.1 only. It serves the full contents of your private
 repositories and has no authentication of its own.
 

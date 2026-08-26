@@ -32,4 +32,18 @@ $B hotspots --repo sentry --since 1y --format json 2>/dev/null | python3 -c 'imp
 $B hotspots --repo sentry --since 1y --format html -o /tmp/r.html >/dev/null 2>&1
 node -e 'const h=require("fs").readFileSync("/tmp/r.html","utf8");const m=h.match(/<script>([\s\S]*?)<\/script>/);new Function(m[1]);' || { echo "  FAIL html js"; fail=1; }
 [ "$(grep -c '<title>' /tmp/r.html)" = "1" ] || { echo "  FAIL html duplicated"; fail=1; }
+# The web app keeps its state in the URL so views can be bookmarked. Only checked
+# when a server happens to be running; check.sh does not start one.
+PORT="${PORT:-7777}"
+if curl -s -o /dev/null --max-time 2 "localhost:$PORT/" 2>/dev/null; then
+  page=$(curl -s "localhost:$PORT/")
+  for fn in readUrl syncUrl popstate; do
+    echo "$page" | grep -q "$fn" || { echo "  FAIL app lost $fn (URL state)"; fail=1; }
+  done
+  code=$(curl -s -o /dev/null -w '%{http_code}' "localhost:$PORT/?view=hotspots&repo=x&since=90d")
+  [ "$code" = "200" ] || { echo "  FAIL app does not serve a query-string URL ($code)"; fail=1; }
+else
+  echo "  (no server on :$PORT — skipped URL-state checks)"
+fi
+
 echo "  output regression failures: $fail"
