@@ -1,12 +1,15 @@
 mod cmds;
 mod git;
+mod github;
 mod html;
 mod identity;
 mod ingest;
 mod model;
 mod output;
+mod picker;
 mod query;
 mod server;
+mod sync;
 
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
@@ -182,6 +185,53 @@ enum Cmd {
         #[command(flatten)]
         scope: Scope,
     },
+    /// Clone an org's repos and keep the ones you have up to date
+    Sync {
+        /// GitHub org or user; prompted for if omitted
+        org: Option<String>,
+        /// Where checkouts live; guessed from ~/code and friends if omitted
+        #[arg(long)]
+        dir: Option<String>,
+        /// Ordering in the picker — alphabetical is rarely what you want
+        #[arg(long, value_enum, default_value = "recent")]
+        sort: github::Sort,
+        /// How many repos to list; 0 for every one (slower on large orgs)
+        #[arg(long, default_value = "200")]
+        limit: usize,
+        /// Concurrent clones
+        #[arg(long, short = 'j', default_value = "8")]
+        jobs: usize,
+        /// Take every listed repo without showing the picker
+        #[arg(long)]
+        all: bool,
+        /// Assume yes for prompts
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Ignore the cached org listing
+        #[arg(long)]
+        refresh: bool,
+        /// Clone over ssh (defaults to whatever `gh config get git_protocol` says)
+        #[arg(long)]
+        ssh: bool,
+        /// Clone over https
+        #[arg(long, conflicts_with = "ssh")]
+        https: bool,
+        /// Only list repos whose name contains this
+        #[arg(long)]
+        filter: Option<String>,
+        /// Include archived repositories
+        #[arg(long = "archived")]
+        include_archived: bool,
+        /// Include forks
+        #[arg(long = "forks")]
+        include_forks: bool,
+        /// Print what would happen and stop
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Ingest everything synced into the metrics cache afterwards
+        #[arg(long)]
+        ingest: bool,
+    },
     /// Run a local server so the views are interactive
     Serve {
         #[arg(long, default_value = "7777")]
@@ -354,6 +404,28 @@ fn main() -> Result<()> {
             let mut o = cmds::assist_mix(&c, &ids, &f, by);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
+        }
+        Cmd::Sync {
+            org, dir, sort, limit, jobs, all, yes, refresh, ssh, https, filter,
+            include_archived, include_forks, dry_run, ingest,
+        } => {
+            sync::run(sync::Opts {
+                org,
+                dir,
+                sort,
+                limit,
+                jobs,
+                all,
+                yes,
+                refresh,
+                // None means "follow the gh config"; the flags force it either way.
+                ssh: if ssh { Some(true) } else if https { Some(false) } else { None },
+                filter,
+                include_archived,
+                include_forks,
+                dry_run,
+                ingest,
+            })?;
         }
         Cmd::Serve { port, daemon, stop, status, refresh, no_open } => {
             server::run(port, daemon, stop, status, refresh, no_open)?;

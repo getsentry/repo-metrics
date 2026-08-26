@@ -32,6 +32,62 @@ cargo build --release
 cp target/release/repo-metrics ~/.local/bin/     # or anywhere on PATH
 ```
 
+## Getting the repos
+
+`sync` is the front door: pick a GitHub org, choose repos from an interactive list,
+and clone them in parallel — then re-run it any time to bring them all up to date.
+
+```bash
+repo-metrics sync                    # prompts for the org and a folder
+repo-metrics sync getsentry          # straight to the picker
+repo-metrics sync getsentry --ingest # ...and load them into the metrics cache after
+```
+
+It guesses where checkouts belong (`~/code`, then `~/src`, `~/dev`, `~/Projects`, …)
+and offers that as the default rather than assuming it.
+
+The list is ordered by **most recently pushed**, not alphabetically — on an org with
+1,274 repos, alphabetical buries everything anyone is actually working on. Other
+orderings via `--sort`:
+
+| `--sort` | Order |
+|---|---|
+| `recent` *(default)* | Most recently pushed first |
+| `active` | Size on disk decayed by time since last push — big and still moving |
+| `stars` / `size` / `name` | As named |
+
+`active` is a proxy, and worth knowing why: GitHub's org listing carries no commit
+count, and the endpoint that does costs one request per repo — 1,274 requests for an
+org this size. Repo size stands in for accumulated history, decayed by how long since
+anyone pushed.
+
+In the picker: type to filter, <kbd>space</kbd> toggles, <kbd>^a</kbd> selects
+everything matching the filter, <kbd>^x</kbd> clears, <kbd>⏎</kbd> confirms,
+<kbd>esc</kbd> backs out. **Repos already on disk start checked**, so the default
+action on a populated folder is "keep what I have current". You get a total download
+size before anything starts.
+
+Archived repos and forks are hidden unless you pass `--archived` / `--forks`. Listings
+are cached for an hour (`--refresh` to bypass); the first 200 repos are fetched by
+default, `--limit 0` gets all of them.
+
+### Updating is deliberately timid
+
+For repos you already have, `sync` always fetches, and then fast-forwards **only** when
+it is unambiguously safe: clean tree, a tracking branch, and no local commits. Anything
+else is fetched and reported, never merged.
+
+```
+  = getsentry/relay          up to date
+  ↑ getsentry/sentry         fast-forwarded 14 commits
+  ! getsentry/relay           fetched; 3 behind, working tree dirty
+  ! getsentry/snuba          fetched; 1 local commit not pushed, 2 behind
+  x getsentry/private-thing  failed: Repository not found
+```
+
+It never rebases, never force-updates, never discards a dirty tree, and never writes
+over a path that exists but is not a checkout. `--dry-run` shows the plan and stops.
+
 ## Use
 
 ```bash
@@ -90,6 +146,8 @@ Every view links its commit out to the forge.
 | `flags` | Weeks where a folder broke out of its own trailing baseline |
 | `assist` | Human vs agent-assisted vs bot, over time |
 | `authors` | Who is committing, and whether an agent helped |
+
+`sync` is documented above; `repos` lists what is in the cache.
 
 ## Decisions that change the numbers
 
