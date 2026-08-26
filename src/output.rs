@@ -148,6 +148,10 @@ pub enum Output {
         series: Vec<Series>,
         stacked: bool,
         y_label: String,
+        /// True when the values are a rate rather than a count, so a total is
+        /// meaningless and the summary reports an average instead.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        rate: bool,
         /// A second measure on its own scale, drawn against a right-hand axis.
         /// Deliberately not part of `series`: it shares the x axis and nothing else,
         /// and where it crosses the bars is an artefact of the two scales rather
@@ -341,6 +345,7 @@ pub fn render_term(o: &Output) -> String {
             x,
             series,
             y_label,
+            rate,
             overlay,
             overlay_label,
             ..
@@ -353,12 +358,23 @@ pub fn render_term(o: &Output) -> String {
                 .unwrap_or(0)
                 .max(6);
             for s in series {
-                let total: f64 = s.points.iter().sum();
+                // Summing a rate would be nonsense; report its average instead.
+                let summary = if *rate {
+                    let live: Vec<f64> = s.points.iter().cloned().filter(|v| *v > 0.0).collect();
+                    let avg = if live.is_empty() {
+                        0.0
+                    } else {
+                        live.iter().sum::<f64>() / live.len() as f64
+                    };
+                    format!("avg {avg:.1} {y_label}")
+                } else {
+                    format!("{} {}", group(s.points.iter().sum::<f64>() as i64), y_label)
+                };
                 out.push_str(&format!(
                     "  {}  {}  {}\n",
                     pad(&s.name, namew, false),
                     st.accent(&sparkline(&s.points)),
-                    st.dim(&format!("{} {}", group(total as i64), y_label))
+                    st.dim(&summary)
                 ));
             }
             if let Some(ov) = overlay {

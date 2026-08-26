@@ -47,6 +47,26 @@ $B timeseries --repo sentry --by month --since 1y --overlay none --format json 2
   | python3 -c 'import json,sys; assert "overlay" not in json.load(sys.stdin), "--overlay none still emits one"' \
   || { echo "  FAIL --overlay none"; fail=1; }
 
+# per-human must actually be the raw metric divided by the authors overlay for the
+# same bucket, not an independently computed number that could drift from it.
+python3 - "$B" <<'PYEOF' || { echo "  FAIL per-human division"; fail=1; }
+import json,subprocess,sys
+B=sys.argv[1]
+def run(*a):
+    return json.loads(subprocess.run([B,"timeseries","--repo","sentry","--by","month",
+        "--since","2y","--format","json",*a],capture_output=True,text=True).stdout)
+raw=run("--metric","churn","--per","total")
+per=run("--metric","churn","--per","human")
+assert per.get("rate") is True, "per-human should be flagged as a rate"
+r=raw["series"][0]["points"]; p=per["series"][0]["points"]; h=raw["overlay"]["points"]
+checked=0
+for i in range(len(r)):
+    if h[i]>0 and r[i]>0:
+        assert abs(p[i]-r[i]/h[i])<0.01, f"bucket {i}: {p[i]} != {r[i]}/{h[i]}"
+        checked+=1
+assert checked>6, f"only {checked} buckets compared"
+PYEOF
+
 # Header links: repo names go to the forge, date boundaries to real commits.
 $B hotspots --repo sentry --since 2026-05-28 --until 2026-06-30 --format json 2>/dev/null \
   | python3 -c '
@@ -81,7 +101,7 @@ done
 PORT="${PORT:-7777}"
 if curl -s -o /dev/null --max-time 2 "localhost:$PORT/" 2>/dev/null; then
   page=$(curl -s "localhost:$PORT/")
-  for fn in readUrl syncUrl applyUrl navigate popstate scopeHtml drillBar __drill; do
+  for fn in readUrl syncUrl applyUrl navigate popstate scopeHtml drillBar __drill caveat; do
     echo "$page" | grep -q "$fn" || { echo "  FAIL app lost $fn (URL state)"; fail=1; }
   done
   # The URL is the single source of truth. Mutating `state` directly and

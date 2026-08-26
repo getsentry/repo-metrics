@@ -152,6 +152,13 @@ of the line count from 90 files, so it swamps a byte- or line-sized tree while
 `git grep -c`, which counts and skips binaries itself and costs about a third of
 a second on a 20,000-file tree.
 
+`--per human` divides whichever metric you asked for by the number of distinct
+humans active in the same bucket, so `commits`, `churn`, `added`, `removed` and
+`files` are all available raw and per person. Raw totals conflate a bigger team
+with a more productive one; the per-human form separates them. On the folders
+chart the denominator is the people who worked in that folder, not everyone active
+in the repo.
+
 `timeseries` draws a second line for the number of distinct humans who authored or
 co-authored in each bucket, against its own axis on the right (`--overlay none`
 turns it off). Co-authors count, since pairing and agent-assisted work both put a
@@ -161,6 +168,13 @@ Read the two lines separately. They share only the x axis, so where the dashed
 line crosses the solid one is a consequence of the two scales and means nothing on
 its own. What it is good for is telling apart "more people" from "more per
 person": if commits climb while the author line stays flat, output per person rose.
+`--per human` answers the same question on a single axis.
+
+Two caveats apply to anything divided by people. Identities are keyed on email, so
+someone committing under both a real address and a GitHub noreply counts twice,
+and the denominator includes anyone who touched the repo even once. Both biases
+are stable over time, so trends hold even where the absolute level is soft. The
+web app repeats this under any chart that uses a human count.
 
 `repos` lists what's in the cache.
 

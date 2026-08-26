@@ -91,6 +91,9 @@ enum Cmd {
         /// Second line on its own axis: distinct humans active per bucket
         #[arg(long, value_enum, default_value = "authors")]
         overlay: Overlay,
+        /// Report the metric raw, or divided by the humans active in each bucket
+        #[arg(long, value_enum, default_value = "total")]
+        per: Per,
         #[arg(long, default_value = "8")]
         top: usize,
         #[command(flatten)]
@@ -105,6 +108,9 @@ enum Cmd {
         /// Directory depth to roll up to (1 = top-level folders)
         #[arg(long, default_value = "1")]
         depth: usize,
+        /// Report the metric raw, or divided by the humans active in each folder
+        #[arg(long, value_enum, default_value = "total")]
+        per: Per,
         #[arg(long, default_value = "8")]
         top: usize,
         #[command(flatten)]
@@ -385,17 +391,17 @@ fn main() -> Result<()> {
             };
             print!("{}", render_term(&o));
         }
-        Cmd::Timeseries { by, metric, split, overlay, top, scope } => {
+        Cmd::Timeseries { by, metric, split, overlay, per, top, scope } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top, overlay);
+            let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top, overlay, per);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
-        Cmd::Folders { by, metric, depth, top, scope } => {
+        Cmd::Folders { by, metric, depth, per, top, scope } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::folders(&c, &ids, &f, by, metric, depth, top);
+            let mut o = cmds::folders(&c, &ids, &f, by, metric, depth, top, per);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }

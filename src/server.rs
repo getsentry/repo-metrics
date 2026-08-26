@@ -380,6 +380,10 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
     let metric = metric_of(q.get("metric").map(|s| s.as_str()).unwrap_or("commits"));
     let split = split_of(q.get("split").map(|s| s.as_str()).unwrap_or("none"));
     let depth = getn(q, "depth", 1);
+    let per = match q.get("per").map(|s| s.as_str()) {
+        Some("human") => Per::Human,
+        _ => Per::Total,
+    };
     let top = getn(q, "top", 12);
 
     let view = q.get("view").map(|s| s.as_str()).unwrap_or("timeseries");
@@ -396,8 +400,9 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
                 Some("none") => Overlay::None,
                 _ => Overlay::Authors,
             },
+            per,
         ),
-        "folders" => cmds::folders(&cache, &ids, &f, by, metric, depth.max(1), top),
+        "folders" => cmds::folders(&cache, &ids, &f, by, metric, depth.max(1), top, per),
         "hotspots" => cmds::hotspots(&cache, &ids, &f, depth.max(1), top.max(5)),
         "flags" => cmds::flags(
             &cache,
@@ -464,6 +469,8 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 .dot{{width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:.35rem}}
 .dot.stale{{background:var(--c1)}}
 .hide{{display:none!important}}
+.caveat{{max-width:70ch;margin:1.4rem 0 0;font-size:.8rem;line-height:1.6;color:var(--faint);
+  border-left:2px solid var(--border);padding-left:.9rem}}
 </style></head>
 <body><div class="wrap">
 <h1>repo-metrics</h1>
@@ -473,6 +480,7 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 <div class="bar" id="controls"></div>
 
 <div class="card"><div id="chart"><div class="empty">loading…</div></div></div>
+<p class="caveat" id="caveat" hidden></p>
 <div class="status">
   <span><span class="dot" id="dot"></span><span id="live">connecting</span></span>
   <span id="timing"></span>
@@ -481,8 +489,8 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 <script>{js}
 
 const VIEWS=[
-  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','split','overlay','top'],{{}}],
-  ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','depth','top'],{{depth:'1'}}],
+  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','per','split','overlay','top'],{{}}],
+  ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','per','depth','top'],{{depth:'1'}}],
   ['hotspots',  'Fastest-moving',      ['repo','since','until','path','depth','top'],{{depth:'2',top:'20'}}],
   ['tree',      'Folder sizes',        ['repo','at','subpath','measure','depth'],{{depth:'2'}}],
   ['compare',   'Compare periods',     ['repo','a','b','path','depth','top'],{{depth:'1'}}],
@@ -506,6 +514,7 @@ const FIELDS={{
   by:    {{t:'select',label:'bucket',opts:['day','week','month'],def:'week'}},
   metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
+  per:   {{t:'select',label:'per',opts:['total','human'],def:'total'}},
   overlay:{{t:'select',label:'overlay',opts:['authors','none'],def:'authors'}},
   measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},
@@ -622,6 +631,14 @@ async function fetchView(){{
     window.__rerender();
     el('scope').innerHTML=scopeHtml(d);
     el('src').innerHTML=sourceHtml(d);
+    // Only where a human count is doing work in the numbers.
+    const human=!!(d.overlay||d.rate);
+    el('caveat').hidden=!human;
+    if(human)el('caveat').textContent=
+      'Two things to weigh before reading too much into these numbers: identities are keyed on '
+      +'email, so someone committing under both a real address and a GitHub noreply counts twice, '
+      +'and the denominator includes anyone who touched the repo even once. Both biases are stable '
+      +'over time, so the trend holds even if the absolute level is soft.';
     el('timing').textContent=`${{d.title}} · ${{d.ms.toFixed(0)}} ms`;
     // Bookmarks take their name from the title, so make it say what the view is.
     const scope=state.repo?` · ${{state.repo}}`:'';

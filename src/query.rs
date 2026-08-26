@@ -55,6 +55,16 @@ impl Measure {
     }
 }
 
+/// Whether a metric is reported raw or divided by the people who produced it.
+/// Raw totals conflate a bigger team with a more productive one.
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
+pub enum Per {
+    /// Raw totals
+    Total,
+    /// Divided by the distinct humans active in the same bucket
+    Human,
+}
+
 /// A second measure drawn against its own axis on the commits chart.
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug)]
 pub enum Overlay {

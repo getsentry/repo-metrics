@@ -18,6 +18,7 @@ pub fn timeseries(
     split: Split,
     top: usize,
     overlay: Overlay,
+    per: Per,
 ) -> Output {
     let repos = select_repos(cache, f);
     let mut buckets: HashMap<(String, i32), f64> = HashMap::new();
@@ -31,19 +32,11 @@ pub fn timeseries(
         for res in resolve(r, ids, f, false) {
             let (k, _) = bucket_key(res.commit.days, b);
             keys.push(k);
-            if overlay == Overlay::Authors {
+            // Needed for the overlay line and for any per-human division.
+            if overlay == Overlay::Authors || per == Per::Human {
                 let set = people.entry(k).or_default();
-                let note = |n: &str, e: &str, set: &mut std::collections::HashSet<String>| {
-                    if ids.is_human(n, e) {
-                        // Email is the steadier handle than a display name, which
-                        // people change; an empty one falls back to the name.
-                        let key = if e.is_empty() { n } else { e };
-                        set.insert(key.to_lowercase());
-                    }
-                };
-                note(r.s(res.commit.author), r.s(res.commit.email), set);
-                for (cn, ce) in &res.commit.coauthors {
-                    note(r.s(*cn), r.s(*ce), set);
+                for key in human_keys(&res, ids) {
+                    set.insert(key);
                 }
             }
             for (name, v) in split_values(&res, split, m, &f.path) {
@@ -56,6 +49,9 @@ pub fn timeseries(
         }
     }
 
+    if per == Per::Human {
+        divide_by_people(&mut buckets, &people, |k| k.1);
+    }
     let ax = axis(&keys, b);
     let names = rank_names(&totals, top);
     let series = build_series(&buckets, &ax, &names);
@@ -67,16 +63,55 @@ pub fn timeseries(
             .collect(),
     });
     Output::Series {
-        title: format!("Commits over time — {}", m.label()),
+        title: format!(
+            "Commits over time — {}{}",
+            m.label(),
+            if per == Per::Human { " per human" } else { "" }
+        ),
         subtitle: range_label(f, &repos),
         source: None,
         scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: split != Split::None,
-        y_label: m.label().to_string(),
+        y_label: if per == Per::Human {
+            format!("{} per human", m.label())
+        } else {
+            m.label().to_string()
+        },
+        rate: per == Per::Human,
         overlay: overlay_series,
         overlay_label: Some("distinct humans".into()),
+    }
+}
+
+/// The humans credited on a commit: the author plus any co-authors, keyed on email
+/// so a display-name change doesn't split one person in two.
+fn human_keys(r: &Resolved, ids: &Identities) -> Vec<String> {
+    let mut out = Vec::new();
+    let add = |n: &str, e: &str, out: &mut Vec<String>| {
+        if ids.is_human(n, e) {
+            out.push(if e.is_empty() { n.to_lowercase() } else { e.to_lowercase() });
+        }
+    };
+    add(r.repo.s(r.commit.author), r.repo.s(r.commit.email), &mut out);
+    for (n, e) in &r.commit.coauthors {
+        add(r.repo.s(*n), r.repo.s(*e), &mut out);
+    }
+    out
+}
+
+/// Divides each bucket by the people who produced it. A bucket with no humans in
+/// it (all bot or agent authored) has no meaningful per-human value and is left at
+/// zero rather than dividing by nothing.
+fn divide_by_people<K: std::hash::Hash + Eq + Clone>(
+    buckets: &mut HashMap<(String, i32), f64>,
+    people: &HashMap<K, std::collections::HashSet<String>>,
+    key_of: impl Fn(&(String, i32)) -> K,
+) {
+    for (k, v) in buckets.iter_mut() {
+        let n = people.get(&key_of(k)).map(|s| s.len()).unwrap_or(0);
+        *v = if n > 0 { *v / n as f64 } else { 0.0 };
     }
 }
 
@@ -142,11 +177,15 @@ pub fn folders(
     m: Metric,
     depth: usize,
     top: usize,
+    per: Per,
 ) -> Output {
     let repos = select_repos(cache, f);
     let mut buckets: HashMap<(String, i32), f64> = HashMap::new();
     let mut totals: HashMap<String, f64> = HashMap::new();
     let mut keys: Vec<i32> = Vec::new();
+    // Keyed by folder as well as bucket: the right denominator for a folder is the
+    // people who worked in *it*, not everyone active in the repo that week.
+    let mut people: HashMap<(String, i32), std::collections::HashSet<String>> = HashMap::new();
 
     for r in &repos {
         for res in resolve(r, ids, f, false) {
@@ -180,25 +219,48 @@ pub fn folders(
                     *seen.entry(key).or_insert(0.0) += v;
                 }
             }
+            let humans = if per == Per::Human {
+                human_keys(&res, ids)
+            } else {
+                Vec::new()
+            };
             for (key, v) in seen {
                 *buckets.entry((key.clone(), k)).or_insert(0.0) += v;
-                *totals.entry(key).or_insert(0.0) += v;
+                *totals.entry(key.clone()).or_insert(0.0) += v;
+                if per == Per::Human {
+                    let set = people.entry((key, k)).or_default();
+                    for h in &humans {
+                        set.insert(h.clone());
+                    }
+                }
             }
         }
     }
 
+    if per == Per::Human {
+        divide_by_people(&mut buckets, &people, |k| k.clone());
+    }
     let ax = axis(&keys, b);
     let names = rank_names(&totals, top);
     let series = build_series(&buckets, &ax, &names);
     Output::Series {
-        title: format!("Folders over time — {} (depth {depth})", m.label()),
+        title: format!(
+            "Folders over time — {}{} (depth {depth})",
+            m.label(),
+            if per == Per::Human { " per human" } else { "" }
+        ),
         subtitle: range_label(f, &repos),
         source: None,
         scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: true,
-        y_label: m.label().to_string(),
+        y_label: if per == Per::Human {
+            format!("{} per human", m.label())
+        } else {
+            m.label().to_string()
+        },
+        rate: per == Per::Human,
         overlay: None,
         overlay_label: None,
     }
@@ -675,6 +737,7 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         series,
         stacked: true,
         y_label: "commits".into(),
+        rate: false,
         overlay: None,
         overlay_label: None,
     }
