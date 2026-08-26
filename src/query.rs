@@ -18,6 +18,10 @@ pub enum Metric {
     Churn,
     Added,
     Removed,
+    /// Lines rewritten in place, approximated per file as min(added, removed).
+    /// Git records no such thing — a diff only ever adds and removes — so this is
+    /// a heuristic, but it separates reworking existing code from writing new code.
+    Modified,
     Files,
 }
 
@@ -28,6 +32,7 @@ impl Metric {
             Metric::Churn => "lines churned",
             Metric::Added => "lines added",
             Metric::Removed => "lines removed",
+            Metric::Modified => "lines modified",
             Metric::Files => "files touched",
         }
     }
@@ -63,6 +68,8 @@ pub enum Per {
     Total,
     /// Divided by the distinct humans active in the same bucket
     Human,
+    /// Divided by the commits in the same bucket, giving average commit size
+    Commit,
 }
 
 /// A second measure drawn against its own axis on the commits chart.
@@ -319,6 +326,7 @@ pub fn metric_value(r: &Resolved, m: Metric, path: &Option<String>) -> f64 {
                 Metric::Churn => c.churn() as f64,
                 Metric::Added => c.added.max(0) as f64,
                 Metric::Removed => c.removed.max(0) as f64,
+                Metric::Modified => c.modified() as f64,
                 Metric::Files => 1.0,
                 Metric::Commits => 0.0,
             })

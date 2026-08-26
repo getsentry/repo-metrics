@@ -47,6 +47,28 @@ $B timeseries --repo sentry --by month --since 1y --overlay none --format json 2
   | python3 -c 'import json,sys; assert "overlay" not in json.load(sys.stdin), "--overlay none still emits one"' \
   || { echo "  FAIL --overlay none"; fail=1; }
 
+# Commit-size metrics have to stay internally consistent: every metric divides by
+# the same commit count, so added-per-commit plus removed-per-commit is exactly
+# churn-per-commit, and modified can never exceed either side of the diff.
+python3 - "$B" <<'PYEOF' || { echo "  FAIL commit-size metrics"; fail=1; }
+import json,subprocess,sys
+B=sys.argv[1]
+def pts(metric,per):
+    out=subprocess.run([B,"timeseries","--repo","sentry","--by","month","--since","2y",
+        "--metric",metric,"--per",per,"--overlay","none","--format","json"],
+        capture_output=True,text=True).stdout
+    return json.loads(out)["series"][0]["points"]
+a=pts("added","commit"); r=pts("removed","commit")
+c=pts("churn","commit"); m=pts("modified","commit")
+checked=0
+for i in range(len(c)):
+    if c[i]<=0: continue
+    assert abs((a[i]+r[i])-c[i])<0.01, f"bucket {i}: {a[i]}+{r[i]} != {c[i]}"
+    assert m[i]<=min(a[i],r[i])+0.01, f"bucket {i}: modified {m[i]} > min({a[i]},{r[i]})"
+    checked+=1
+assert checked>12, f"only {checked} buckets compared"
+PYEOF
+
 # compare puts two different things in one set of columns; they must stay labelled
 # and separated, and the directory rows must say what they measure.
 $B compare 2025-H2 2026-H1 --repo sentry --top 5 --format json 2>/dev/null \

@@ -353,6 +353,7 @@ fn metric_of(s: &str) -> Metric {
         "churn" => Metric::Churn,
         "added" => Metric::Added,
         "removed" => Metric::Removed,
+        "modified" => Metric::Modified,
         "files" => Metric::Files,
         _ => Metric::Commits,
     }
@@ -382,6 +383,7 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
     let depth = getn(q, "depth", 1);
     let per = match q.get("per").map(|s| s.as_str()) {
         Some("human") => Per::Human,
+        Some("commit") => Per::Commit,
         _ => Per::Total,
     };
     let top = getn(q, "top", 12);
@@ -512,9 +514,9 @@ const FIELDS={{
   a:     {{t:'text',label:'period A',ph:'2025-H2',def:'2025-H2'}},
   b:     {{t:'text',label:'period B',ph:'2026-H1',def:'2026-H1'}},
   by:    {{t:'select',label:'bucket',opts:['day','week','month'],def:'week'}},
-  metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','files'],def:'commits'}},
+  metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','modified','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
-  per:   {{t:'select',label:'per',opts:['total','human'],def:'total'}},
+  per:   {{t:'select',label:'per',opts:['total','commit','human'],def:'total'}},
   overlay:{{t:'select',label:'overlay',opts:['authors','none'],def:'authors'}},
   measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},

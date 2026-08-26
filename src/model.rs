@@ -61,6 +61,12 @@ impl Change {
     pub fn churn(&self) -> i64 {
         self.added.max(0) as i64 + self.removed.max(0) as i64
     }
+    /// Lines rewritten rather than purely added or deleted. A diff records only
+    /// additions and removals, so the overlap between them is the best available
+    /// stand-in for an edit in place.
+    pub fn modified(&self) -> i64 {
+        (self.added.max(0) as i64).min(self.removed.max(0) as i64)
+    }
     /// Binary files are touched-but-uncounted, which callers need to distinguish
     /// from a real zero-line change.
     #[allow(dead_code)]

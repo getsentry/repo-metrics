@@ -152,9 +152,21 @@ of the line count from 90 files, so it swamps a byte- or line-sized tree while
 `git grep -c`, which counts and skips binaries itself and costs about a third of
 a second on a 20,000-file tree.
 
-`--per human` divides whichever metric you asked for by the number of distinct
-humans active in the same bucket, so `commits`, `churn`, `added`, `removed` and
-`files` are all available raw and per person. Raw totals conflate a bigger team
+`--per` divides whichever metric you asked for, so every metric is available three
+ways. `--per commit` gives average commit size — lines added, removed, modified or
+churned per commit — and `--per human` gives output per person. Metrics are
+`commits`, `churn`, `added`, `removed`, `modified` and `files`.
+
+`modified` is lines rewritten in place, approximated per file as the smaller of
+its added and removed counts. Git records no such thing; a diff only ever adds and
+removes lines. It is a heuristic, but it separates reworking existing code from
+writing new code, and it is bounded by both sides of the diff.
+
+Every metric divides by the same commit count, including commits where that metric
+is zero, so added-per-commit plus removed-per-commit is exactly churn-per-commit.
+(`commits --per commit` is 1 by definition.)
+
+Per-human divides by the number of distinct humans active in the same bucket. Raw totals conflate a bigger team
 with a more productive one; the per-human form separates them. On the folders
 chart the denominator is the people who worked in that folder, not everyone active
 in the repo.

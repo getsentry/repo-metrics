@@ -27,6 +27,8 @@ pub fn timeseries(
     // Distinct humans per bucket. Co-authors count: pairing and agent-assisted
     // work both put a second person on a commit they genuinely worked on.
     let mut people: HashMap<i32, std::collections::HashSet<String>> = HashMap::new();
+    // Commits feeding each series/bucket, for average commit size.
+    let mut counts: HashMap<(String, i32), f64> = HashMap::new();
 
     for r in &repos {
         for res in resolve(r, ids, f, false) {
@@ -40,6 +42,13 @@ pub fn timeseries(
                 }
             }
             for (name, v) in split_values(&res, split, m, &f.path) {
+                // Count the commit before skipping a zero. A commit that removed
+                // nothing is still a commit, and leaving it out of the divisor
+                // would inflate "lines removed per commit" and stop added and
+                // removed from summing to churn.
+                if per == Per::Commit {
+                    *counts.entry((name.clone(), k)).or_insert(0.0) += 1.0;
+                }
                 if v == 0.0 {
                     continue;
                 }
@@ -49,8 +58,10 @@ pub fn timeseries(
         }
     }
 
-    if per == Per::Human {
-        divide_by_people(&mut buckets, &people, |k| k.1);
+    match per {
+        Per::Human => divide_by_people(&mut buckets, &people, |k| k.1),
+        Per::Commit => divide_by_counts(&mut buckets, &counts),
+        Per::Total => {}
     }
     let ax = axis(&keys, b);
     let names = rank_names(&totals, top);
@@ -66,7 +77,7 @@ pub fn timeseries(
         title: format!(
             "Commits over time — {}{}",
             m.label(),
-            if per == Per::Human { " per human" } else { "" }
+            per_suffix(per)
         ),
         subtitle: range_label(f, &repos),
         source: None,
@@ -74,12 +85,8 @@ pub fn timeseries(
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: split != Split::None,
-        y_label: if per == Per::Human {
-            format!("{} per human", m.label())
-        } else {
-            m.label().to_string()
-        },
-        rate: per == Per::Human,
+        y_label: format!("{}{}", m.label(), per_suffix(per)),
+        rate: per != Per::Total,
         overlay: overlay_series,
         overlay_label: Some("distinct humans".into()),
     }
@@ -112,6 +119,27 @@ fn divide_by_people<K: std::hash::Hash + Eq + Clone>(
     for (k, v) in buckets.iter_mut() {
         let n = people.get(&key_of(k)).map(|s| s.len()).unwrap_or(0);
         *v = if n > 0 { *v / n as f64 } else { 0.0 };
+    }
+}
+
+/// Divides each bucket by a count held under the same key. Used for average commit
+/// size, where the divisor has to be the commits that fed *that* series — dividing
+/// an agent-authored band by every commit in the week would be meaningless.
+fn per_suffix(per: Per) -> &'static str {
+    match per {
+        Per::Total => "",
+        Per::Human => " per human",
+        Per::Commit => " per commit",
+    }
+}
+
+fn divide_by_counts(
+    buckets: &mut HashMap<(String, i32), f64>,
+    counts: &HashMap<(String, i32), f64>,
+) {
+    for (k, v) in buckets.iter_mut() {
+        let n = counts.get(k).copied().unwrap_or(0.0);
+        *v = if n > 0.0 { *v / n } else { 0.0 };
     }
 }
 
@@ -153,6 +181,7 @@ fn split_values(r: &Resolved, split: Split, m: Metric, path: &Option<String>) ->
                     Metric::Churn => c.churn() as f64,
                     Metric::Added => c.added.max(0) as f64,
                     Metric::Removed => c.removed.max(0) as f64,
+                    Metric::Modified => c.modified() as f64,
                 };
                 *acc.entry(language_of(p).to_string()).or_insert(0.0) += v;
             }
@@ -186,6 +215,7 @@ pub fn folders(
     // Keyed by folder as well as bucket: the right denominator for a folder is the
     // people who worked in *it*, not everyone active in the repo that week.
     let mut people: HashMap<(String, i32), std::collections::HashSet<String>> = HashMap::new();
+    let mut counts: HashMap<(String, i32), f64> = HashMap::new();
 
     for r in &repos {
         for res in resolve(r, ids, f, false) {
@@ -212,6 +242,7 @@ pub fn folders(
                     Metric::Churn => c.churn() as f64,
                     Metric::Added => c.added.max(0) as f64,
                     Metric::Removed => c.removed.max(0) as f64,
+                    Metric::Modified => c.modified() as f64,
                 };
                 if m == Metric::Commits {
                     seen.insert(key, 1.0);
@@ -228,17 +259,22 @@ pub fn folders(
                 *buckets.entry((key.clone(), k)).or_insert(0.0) += v;
                 *totals.entry(key.clone()).or_insert(0.0) += v;
                 if per == Per::Human {
-                    let set = people.entry((key, k)).or_default();
+                    let set = people.entry((key.clone(), k)).or_default();
                     for h in &humans {
                         set.insert(h.clone());
                     }
+                }
+                if per == Per::Commit {
+                    *counts.entry((key, k)).or_insert(0.0) += 1.0;
                 }
             }
         }
     }
 
-    if per == Per::Human {
-        divide_by_people(&mut buckets, &people, |k| k.clone());
+    match per {
+        Per::Human => divide_by_people(&mut buckets, &people, |k| k.clone()),
+        Per::Commit => divide_by_counts(&mut buckets, &counts),
+        Per::Total => {}
     }
     let ax = axis(&keys, b);
     let names = rank_names(&totals, top);
@@ -247,7 +283,7 @@ pub fn folders(
         title: format!(
             "Folders over time — {}{} (depth {depth})",
             m.label(),
-            if per == Per::Human { " per human" } else { "" }
+            per_suffix(per)
         ),
         subtitle: range_label(f, &repos),
         source: None,
@@ -255,12 +291,8 @@ pub fn folders(
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: true,
-        y_label: if per == Per::Human {
-            format!("{} per human", m.label())
-        } else {
-            m.label().to_string()
-        },
-        rate: per == Per::Human,
+        y_label: format!("{}{}", m.label(), per_suffix(per)),
+        rate: per != Per::Total,
         overlay: None,
         overlay_label: None,
     }
