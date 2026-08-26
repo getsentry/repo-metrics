@@ -11,8 +11,13 @@ for you.
 
 ```bash
 cargo build --release
-cp target/release/repo-metrics ~/.local/bin/
+install -m 755 target/release/repo-metrics ~/.local/bin/
 ```
+
+Use `install` rather than `cp` when upgrading. Overwriting the binary in place,
+while a `serve` daemon or the scheduled job is pointing at it, has produced
+processes that die immediately with signal 9; replacing the file cleanly avoids
+it.
 
 ## Quick start
 
