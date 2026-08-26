@@ -34,6 +34,16 @@ pub fn timeseries(
         for res in resolve(r, ids, f, false) {
             let (k, _) = bucket_key(res.commit.days, b);
             keys.push(k);
+            // A path filter narrows what this chart is about, and everything below
+            // this line describes that subject: the humans credited in it and the
+            // commits it averages over. A commit that touched nothing under the path
+            // belongs to neither. Counting it anyway divides a folder's churn by the
+            // whole repo's activity, which understates it by however much larger the
+            // repo is than the folder. The folders view already scopes both divisors
+            // this way; this is the same rule.
+            if !touches_path(&res, &f.path) {
+                continue;
+            }
             // Needed for the overlay line and for any per-human division.
             if overlay == Overlay::Authors || per == Per::Human {
                 let set = people.entry(k).or_default();
@@ -477,7 +487,8 @@ pub fn compare(
     push("commits".into(), sa.0, sb.0, &mut rows);
     push("lines added".into(), sa.1, sb.1, &mut rows);
     push("lines removed".into(), sa.2, sb.2, &mut rows);
-    push("files touched".into(), sa.3, sb.3, &mut rows);
+    // File touches, not distinct files: one row per file per commit.
+    push("file touches".into(), sa.3, sb.3, &mut rows);
     push("distinct authors".into(), sa.4, sb.4, &mut rows);
     push("commits an agent wrote".into(), sa.5, sb.5, &mut rows);
     push("  agent-assisted".into(), sa.6, sb.6, &mut rows);
@@ -945,11 +956,13 @@ pub fn tree(
     let rd = resolve_repo(cache, f)?;
     let repo_path = Path::new(&rd.path);
     let (sha, when) = match date {
-        Some(d) => match git::rev_before(repo_path, d)? {
+        // Walk back from the sha the cache was built from, so a snapshot lines up
+        // with the charts even when the working copy sits on another branch.
+        Some(d) => match git::rev_before(repo_path, d, &rd.head)? {
             Some(s) => (s, d.to_string()),
             None => bail!("no commit at or before {d} in {}", rd.name),
         },
-        None => (rd.head.clone(), "HEAD".to_string()),
+        None => (rd.head.clone(), "the default branch".to_string()),
     };
     let mut entries = git::ls_tree(repo_path, &sha)?;
     // `size` carries whichever measure was asked for, so the tree builder stays

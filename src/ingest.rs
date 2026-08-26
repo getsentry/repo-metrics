@@ -286,18 +286,19 @@ fn build_repo_data(
 pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> Result<()> {
     let name = git::repo_name(repo_path);
     let path = repo_path.display().to_string();
-    let head = git::head_sha(repo_path)?;
+    // The default branch, never the checkout. See git::default_ref.
+    let branch = git::default_ref(repo_path);
+    let head = git::sha_of(repo_path, &branch)?;
 
     let idx = cache.repos.iter().position(|r| r.path == path);
     let prev_head = idx.and_then(|i| {
         let r = &cache.repos[i];
-        // A checkpoint that has been rebased out from under us is not a checkpoint.
-        if git::git(
-            repo_path,
-            &["cat-file", "-e", &format!("{}^{{commit}}", r.head)],
-        )
-        .is_ok()
-        {
+        // A checkpoint only holds if it is still on the branch we are about to walk.
+        // Mere existence is not enough: a commit left behind by a rebase, a
+        // force-push or an ingest taken from another ref still resolves, and
+        // appending `{that}..{head}` to the cache never removes what it left there.
+        // Anything but a clean ancestor is re-read from scratch.
+        if git::is_ancestor(repo_path, &r.head, &head) {
             Some(r.head.clone())
         } else {
             None
@@ -312,14 +313,17 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
             }
             return Ok(());
         }
-        (Some(h), true) => format!("{h}..HEAD"),
-        _ => "HEAD".to_string(),
+        // Pin both ends to shas. The branch can move while we work, and a range that
+        // re-resolves mid-run would record a head we never actually walked.
+        (Some(h), true) => format!("{h}..{head}"),
+        _ => head.clone(),
     };
 
     if !quiet {
         eprintln!(
-            "{name}: {} ingest ({range})",
-            if incremental { "incremental" } else { "full" }
+            "{name}: {} ingest ({branch} @ {})",
+            if incremental { "incremental" } else { "full" },
+            &head[..8.min(head.len())]
         );
     }
 

@@ -22,6 +22,11 @@ pub enum Metric {
     /// Git records no such thing — a diff only ever adds and removes — so this is
     /// a heuristic, but it separates reworking existing code from writing new code.
     Modified,
+    /// One count per file per commit. A file touched in fifty commits counts fifty
+    /// times, which is the point: repeated touches are churn pressure on that file.
+    /// This is not a count of distinct files — `tree` and `Measure::Files` report
+    /// that, and the two are labelled differently everywhere so they never read as
+    /// the same number.
     Files,
 }
 
@@ -33,7 +38,7 @@ impl Metric {
             Metric::Added => "lines added",
             Metric::Removed => "lines removed",
             Metric::Modified => "lines modified",
-            Metric::Files => "files touched",
+            Metric::Files => "file touches",
         }
     }
 }
@@ -307,6 +312,22 @@ pub fn path_matches(dir: &str, path: &str, prefix: &Option<String>) -> bool {
                 || path.starts_with(&format!("{p}/"))
         }
     }
+}
+
+/// Whether a commit touched anything under the active path filter. With no filter
+/// every commit qualifies.
+///
+/// This is what puts a commit *in scope* for a path-filtered view, and scope is what
+/// a divisor has to be built from: a commit that changed nothing under the path is
+/// not a small contribution to that folder, it is not a contribution at all.
+pub fn touches_path(r: &Resolved, path: &Option<String>) -> bool {
+    if path.is_none() {
+        return true;
+    }
+    r.repo
+        .changes_of(r.commit)
+        .iter()
+        .any(|c| path_matches(r.repo.s(c.dir), r.repo.s(c.path), path))
 }
 
 /// Sum a metric over one commit, honouring the active path filter.
