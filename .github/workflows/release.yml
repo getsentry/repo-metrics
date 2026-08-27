@@ -47,13 +47,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Native runners for each target, so nothing needs cross-compiling.
+          # Native where a runner exists. The Intel mac is the exception: macos-13
+          # was retired, and a job asking for it now sits queued forever rather than
+          # failing, so the whole release hangs waiting on a runner that is never
+          # coming. Apple silicon cross-compiles to x86_64 with the stock toolchain,
+          # so that target is built here and simply not run.
           - os: macos-14
             target: aarch64-apple-darwin
-          - os: macos-13
+            smoke: true
+          - os: macos-14
             target: x86_64-apple-darwin
+            smoke: false
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            smoke: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,10 +72,16 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
+      # Only where the runner can execute what it just built. A cross-compiled
+      # binary is verified by the native job for its own architecture.
       - name: Smoke test
+        if: matrix.smoke
         run: B=target/${{ matrix.target }}/release/repo-metrics ./scripts/smoke.sh
 
       - name: Package
