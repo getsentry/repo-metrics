@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Bump when the parser changes shape, or when the set of commits we ingest changes.
-/// A mismatch re-ingests from scratch, which is seconds of work — so there is no
-/// backfill problem to engineer around.
+/// Bump when the parser changes shape, when the set of commits we ingest changes, or
+/// when a stored value starts meaning something different. A mismatch re-ingests from
+/// scratch, which is seconds of work — so there is no backfill problem to engineer
+/// around.
 ///
 /// 3: read the default branch instead of HEAD. Caches written before this may hold
 /// commits from whatever branch happened to be checked out at ingest time, and
@@ -15,7 +16,11 @@ use std::path::PathBuf;
 /// 4: store the comment/blank split of every change, so line metrics can be asked
 /// for everything, for source and comments, or for source alone. The counts are
 /// only obtainable from diff content, which earlier caches never recorded.
-pub const PARSER_VERSION: u32 = 4;
+/// 5: the line classifier stopped reading a closing `"""` as the start of a comment
+/// and a leading `*` as a comment continuation. The layout is unchanged, but the
+/// comment and blank counts written under version 4 were measured by the older,
+/// wronger rule, and nothing in the file says so.
+pub const PARSER_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Cache {
