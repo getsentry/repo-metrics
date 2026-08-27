@@ -118,10 +118,14 @@ pub fn style_of(path: &str) -> Style {
     }
 }
 
-/// Open block-comment state: the delimiter we are waiting to see. `None` means we
-/// are not inside a block. Carrying the terminator rather than a bare flag is what
-/// keeps a Python docstring from being closed by a stray `*/`.
-pub type Block = Option<&'static str>;
+/// Open block state: the delimiter we are waiting to see, and what the lines up to
+/// it count as. `None` means we are not inside a block.
+///
+/// Both halves earn their place. The terminator keeps a Python docstring from being
+/// closed by a stray `*/`. The kind is what separates a docstring from an ordinary
+/// multi-line string: one opens a comment, the other opens a string literal, and
+/// the lines inside them are not the same thing at all.
+pub type Block = Option<(&'static str, Kind)>;
 
 /// Classify one line.
 ///
@@ -140,18 +144,19 @@ pub fn classify(style: Style, line: &str, block: &mut Block) -> Kind {
         // reader expects and what cloc reports, so the two can be compared.
         return Kind::Blank;
     }
-    if let Some(end) = *block {
+    if let Some((end, kind)) = *block {
         return match t.split_once(end) {
             Some((_, after)) => {
                 *block = None;
-                // Code after the terminator makes this a code line.
-                if after.trim().is_empty() {
+                // Closing a comment leaves a comment, unless real code follows the
+                // terminator. Closing a string literal is code either way.
+                if kind == Kind::Comment && after.trim().is_empty() {
                     Kind::Comment
                 } else {
                     Kind::Code
                 }
             }
-            None => Kind::Comment,
+            None => kind,
         };
     }
     match style {
@@ -161,9 +166,26 @@ pub fn classify(style: Style, line: &str, block: &mut Block) -> Kind {
             if t.starts_with('#') {
                 return Kind::Comment;
             }
+            // An odd number of triple quotes leaves one open, wherever on the line
+            // they sit. Where the first one starts decides what the block is: a line
+            // beginning with the quotes is a docstring, and anywhere else they open
+            // a string literal inside an expression, which is code all the way to
+            // the closing quotes. Testing only the start of the line meant an
+            // assignment never opened a block at all, and its closing quotes then
+            // opened a phantom comment that ran to the next triple quote in the file.
             for q in ["\"\"\"", "'''"] {
+                if t.matches(q).count() % 2 == 1 {
+                    let kind = if t.starts_with(q) {
+                        Kind::Comment
+                    } else {
+                        Kind::Code
+                    };
+                    *block = Some((q, kind));
+                    return kind;
+                }
+                // Opened and closed on the same line: a one-line docstring.
                 if t.starts_with(q) {
-                    return open_block(t, q, q, block);
+                    return Kind::Comment;
                 }
             }
             Kind::Code
@@ -193,9 +215,12 @@ fn block_or_line(
     if markers.iter().any(|m| t.starts_with(m)) {
         return Kind::Comment;
     }
-    // A continuation line of a `/** ... */` block, which is how most of these are
-    // written and the shape a diff hunk shows most often.
-    if close == "*/" && t.starts_with('*') {
+    // A bare `*/` is evidence of a block whose opening line this hunk cannot show.
+    // A leading `*` on its own is not: it is a dereference, a multiplication or a
+    // generator method far more often than a JSDoc continuation, and reading those
+    // as comments drops real code out of the source-only count. Whole files never
+    // needed this branch — block state already carries them.
+    if close == "*/" && t.starts_with("*/") {
         return Kind::Comment;
     }
     if t.starts_with(open) {
@@ -212,7 +237,7 @@ fn open_block(t: &str, open: &'static str, close: &'static str, block: &mut Bloc
         Some((_, after)) if !after.trim().is_empty() => Kind::Code,
         Some(_) => Kind::Comment,
         None => {
-            *block = Some(close);
+            *block = Some((close, Kind::Comment));
             Kind::Comment
         }
     }
@@ -297,6 +322,29 @@ mod tests {
     fn a_blank_line_inside_a_block_is_still_blank() {
         let src = "/* a\n\n b */\ncode\n";
         assert_eq!(counts("a.rs", src), (1, 2, 1));
+    }
+
+    #[test]
+    fn a_multi_line_string_is_code_not_a_docstring() {
+        // `s = """` opens a string literal, not a docstring. The closing quotes
+        // must not be read as opening a fresh comment block that swallows the rest.
+        let src = "s = \"\"\"\nhello\n\"\"\"\nx = 1\ny = 2\n";
+        assert_eq!(counts("a.py", src), (5, 0, 0));
+    }
+
+    #[test]
+    fn a_dereference_is_not_a_comment() {
+        // A leading `*` is an operator in these languages far more often than it is
+        // a JSDoc continuation.
+        let mut b: Block = None;
+        assert_eq!(classify(Style::Slash, "*x = 5;", &mut b), Kind::Code);
+        assert_eq!(classify(Style::Slash, "*ptr += 1;", &mut b), Kind::Code);
+        assert_eq!(
+            classify(Style::Block, "* { margin: 0 }", &mut b),
+            Kind::Code
+        );
+        // A bare terminator is still evidence of a block we cannot see the start of.
+        assert_eq!(classify(Style::Slash, "*/", &mut b), Kind::Comment);
     }
 
     #[test]
