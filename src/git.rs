@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
-use std::io::Write;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -199,42 +200,102 @@ pub fn ls_tree(repo: &Path, sha: &str) -> Result<Vec<TreeEntry>> {
     Ok(entries)
 }
 
-/// Lines per file at a commit, via `git grep -c`. Git does the counting and the
-/// binary detection itself and parallelises internally, which makes this far
-/// cheaper than streaming every blob out and counting here.
+/// Lines per file at a commit, split into code, comment and blank.
 ///
 /// Bytes are the wrong measure for a code repo — translation catalogues and
 /// vendored assets dominate a byte-weighted tree while contributing no code.
-pub fn sloc(repo: &Path, sha: &str) -> Result<std::collections::HashMap<String, u64>> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        // -I skips binary files; ^ matches every line.
-        .args(["grep", "-c", "-I", "-E", "^", sha])
-        .output()
-        .context("failed to run git grep")?;
-    // Exit code 1 just means nothing matched, which is a legitimately empty tree.
-    if !out.status.success() && out.status.code() != Some(1) {
-        bail!(
-            "git grep failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let prefix = format!("{sha}:");
-    let mut map = std::collections::HashMap::new();
-    for line in text.lines() {
-        let rest = match line.strip_prefix(&prefix) {
-            Some(r) => r,
+///
+/// This streams every blob in the tree and classifies it, rather than asking
+/// `git grep -c` for a line count. Grep can only answer "how many lines", which is
+/// what made the old `sloc` measure a plain `wc -l` wearing a better name. Reading
+/// a whole file also means block comments are tracked exactly, unlike the diff side
+/// where only a hunk is visible. On sentry's 20k-file tree the whole pass is under
+/// a second, so the honesty is close to free.
+pub fn line_counts(repo: &Path, sha: &str) -> Result<HashMap<String, (u64, u64, u64)>> {
+    let listing = git(repo, &["ls-tree", "-r", sha])?;
+    // <mode> <type> <sha>\t<path>
+    let mut blobs: Vec<(String, String)> = Vec::new();
+    for line in listing.lines() {
+        let (meta, path) = match line.split_once('\t') {
+            Some(x) => x,
             None => continue,
         };
-        // Split from the right: a path may contain a colon, the count cannot.
-        if let Some((path, n)) = rest.rsplit_once(':') {
-            if let Ok(n) = n.parse::<u64>() {
-                map.insert(path.to_string(), n);
-            }
+        let mut it = meta.split_whitespace();
+        let (_mode, kind, oid) = match (it.next(), it.next(), it.next()) {
+            (Some(a), Some(b), Some(c)) => (a, b, c),
+            _ => continue,
+        };
+        if kind != "blob" {
+            continue;
+        }
+        blobs.push((oid.to_string(), path.to_string()));
+    }
+    if blobs.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // One `cat-file --batch` for the whole tree: a process per file would cost far
+    // more than the reading does.
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("failed to spawn git cat-file")?;
+
+    // The request list runs to hundreds of kilobytes, far past a pipe buffer, so it
+    // has to be written from its own thread. Writing it inline deadlocks: we block
+    // filling git's stdin while git blocks filling a stdout nobody is draining yet.
+    let mut stdin = child.stdin.take().context("no stdin on git cat-file")?;
+    let oids: Vec<String> = blobs.iter().map(|(o, _)| o.clone()).collect();
+    let writer = std::thread::spawn(move || {
+        let mut buf = String::with_capacity(oids.len() * 41);
+        for o in &oids {
+            buf.push_str(o);
+            buf.push('\n');
+        }
+        let _ = stdin.write_all(buf.as_bytes());
+        // Dropping stdin closes it, which is what ends the batch.
+    });
+
+    let mut rd = BufReader::new(child.stdout.take().context("no stdout on git cat-file")?);
+    let mut map = HashMap::with_capacity(blobs.len());
+    let mut body: Vec<u8> = Vec::new();
+    for (_, path) in &blobs {
+        // "<oid> <type> <size>\n", then <size> bytes, then a newline. A missing
+        // object answers "<oid> missing" with no body, so the two lists stay in step.
+        let mut header = String::new();
+        if rd.read_line(&mut header)? == 0 {
+            break;
+        }
+        let size: usize = match header
+            .trim_end()
+            .rsplit(' ')
+            .next()
+            .and_then(|s| s.parse().ok())
+        {
+            Some(n) => n,
+            None => continue,
+        };
+        body.clear();
+        body.resize(size, 0);
+        if rd.read_exact(&mut body).is_err() {
+            break;
+        }
+        let mut nl = [0u8; 1];
+        let _ = rd.read_exact(&mut nl);
+        // A NUL byte is how git itself decides a blob is binary; such a file has no
+        // line count worth reporting, so it is left out rather than counted as one.
+        if !body.contains(&0) {
+            let text = String::from_utf8_lossy(&body);
+            map.insert(path.clone(), crate::lines::count_file(path, &text));
         }
     }
+    let _ = writer.join();
+    let _ = child.wait();
     Ok(map)
 }
 

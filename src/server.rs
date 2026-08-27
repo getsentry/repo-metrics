@@ -3,6 +3,7 @@ use crate::git;
 use crate::html;
 use crate::identity::Identities;
 use crate::ingest;
+use crate::lines::Lines;
 use crate::model::*;
 use crate::output::Output;
 use crate::proc::{pid_alive, signal};
@@ -405,6 +406,13 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
         _ => Per::Total,
     };
     let top = getn(q, "top", 12);
+    // Which lines a line metric counts. Defaults to every line, so a link written
+    // before this control existed still means what it meant.
+    let lines = match q.get("lines").map(|s| s.as_str()) {
+        Some("source-and-comments") => Lines::SourceAndComments,
+        Some("source-only") => Lines::SourceOnly,
+        _ => Lines::All,
+    };
 
     let view = q.get("view").map(|s| s.as_str()).unwrap_or("timeseries");
     let mut out = match view {
@@ -421,9 +429,10 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
                 _ => Overlay::Authors,
             },
             per,
+            lines,
         ),
-        "folders" => cmds::folders(&cache, &ids, &f, by, metric, depth.max(1), top, per),
-        "hotspots" => cmds::hotspots(&cache, &ids, &f, depth.max(1), top.max(5)),
+        "folders" => cmds::folders(&cache, &ids, &f, by, metric, depth.max(1), top, per, lines),
+        "hotspots" => cmds::hotspots(&cache, &ids, &f, depth.max(1), top.max(5), lines),
         "flags" => cmds::flags(
             &cache,
             &ids,
@@ -434,8 +443,9 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
             getn(q, "window", 12),
             getn(q, "min_baseline", 8),
             top.max(5),
+            lines,
         ),
-        "authors" => cmds::authors(&cache, &ids, &f, top.max(5)),
+        "authors" => cmds::authors(&cache, &ids, &f, top.max(5), lines),
         "assist" => cmds::assist_mix(&cache, &ids, &f, by),
         "compare" => cmds::compare(
             &cache,
@@ -445,6 +455,7 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
             &opt(q, "b").unwrap_or_else(|| "2026-H1".into()),
             depth.max(1),
             top,
+            lines,
         )?,
         // `radial` was a second view that rendered identically to `tree`; it stays
         // accepted so old links keep working, but there is only one view now.
@@ -459,6 +470,7 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
                 Some("bytes") => Measure::Bytes,
                 _ => Measure::Files,
             },
+            lines,
         )?,
         other => bail!("unknown view {other:?}"),
     };
@@ -507,12 +519,12 @@ select:focus-visible,input:focus-visible,button:focus-visible{{outline:2px solid
 <script>{js}
 
 const VIEWS=[
-  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','per','split','overlay','top'],{{}}],
-  ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','per','depth','top'],{{depth:'1'}}],
-  ['hotspots',  'Fastest-moving',      ['repo','since','until','path','depth','top'],{{depth:'2',top:'20'}}],
-  ['tree',      'Folder sizes',        ['repo','at','subpath','measure','depth'],{{depth:'2'}}],
-  ['compare',   'Compare periods',     ['repo','a','b','path','depth','top'],{{depth:'1'}}],
-  ['flags',     'Interesting periods', ['repo','since','until','path','depth','z','min_churn','top'],{{depth:'1',top:'30'}}],
+  ['timeseries','Commits over time',   ['repo','since','until','path','by','metric','per','lines','split','overlay','top'],{{}}],
+  ['folders',   'Folders over time',   ['repo','since','until','path','by','metric','per','lines','depth','top'],{{depth:'1'}}],
+  ['hotspots',  'Fastest-moving',      ['repo','since','until','path','lines','depth','top'],{{depth:'2',top:'20'}}],
+  ['tree',      'Folder sizes',        ['repo','at','subpath','measure','lines','depth'],{{depth:'2'}}],
+  ['compare',   'Compare periods',     ['repo','a','b','path','lines','depth','top'],{{depth:'1'}}],
+  ['flags',     'Interesting periods', ['repo','since','until','path','lines','depth','z','min_churn','top'],{{depth:'1',top:'30'}}],
   ['assist',    'Human vs agent',      ['repo','since','until','path','by'],{{by:'month'}}],
   ['authors',   'Authors',             ['repo','since','until','path','top'],{{top:'25'}}],
 ];
@@ -533,6 +545,7 @@ const FIELDS={{
   metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','modified','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
   per:   {{t:'select',label:'per',opts:['total','commit','human'],def:'total'}},
+  lines: {{t:'select',label:'count lines',opts:['all','source-and-comments','source-only'],def:'all'}},
   overlay:{{t:'select',label:'overlay',opts:['authors','none'],def:'authors'}},
   measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},

@@ -145,20 +145,50 @@ for it.
 | | |
 |---|---|
 | `files` *(default)* | Number of files |
-| `sloc` | Lines of text, binaries excluded |
+| `sloc` | Lines, binaries excluded — see `--lines` for which lines |
 | `bytes` | Bytes on disk |
 
 Bytes flatter whatever is bulky rather than whatever is code. In sentry, the
 translation catalogue under `src/sentry/locale` is 65% of the byte weight and 67%
 of the line count from 90 files, so it swamps a byte- or line-sized tree while
-`files` puts it at under 2% and the real subsystems surface. SLOC comes from
-`git grep -c`, which counts and skips binaries itself and costs about a third of
-a second on a 20,000-file tree.
+`files` puts it at under 2% and the real subsystems surface. The line count comes
+from reading every blob in the tree and classifying it, which costs under a second
+on a 20,000-file tree.
 
 `--per` divides whichever metric you asked for, so every metric is available three
 ways. `--per commit` gives average commit size — lines added, removed, modified or
 churned per commit — and `--per human` gives output per person. Metrics are
 `commits`, `churn`, `added`, `removed`, `modified` and `files`.
+
+### Which lines count
+
+Git counts lines, not source lines: adding forty blank lines and a licence header
+looks exactly like adding forty lines of logic. `--lines` says which of them a line
+metric should count, and it applies to `churn`, `added`, `removed`, `modified` and
+to `tree --measure sloc`.
+
+| | |
+|---|---|
+| `all` *(default)* | Every line, the same count as `wc -l` |
+| `source-and-comments` | Whitespace removed |
+| `source-only` | Whitespace and comments removed |
+
+Each mode drops one more category. The default is `all` so that no number moves
+unless you ask it to. On sentry's full history the three modes read 26.7M, 24.4M and
+20.9M churned lines.
+
+Whitespace has no mode of its own; it is only ever the thing being excluded. Comment
+volume is the gap between the last two modes — 3.5M lines on that same history —
+which is worth watching as more code is written by agents.
+
+Code and comment are told apart lexically, by file extension and line shape, not by
+parsing the language. Reading a whole file — which is what `tree` does — block
+comments and Python docstrings are tracked exactly. Reading a diff only a hunk is
+visible, so a block comment opened above it can be missed; the rule is deliberately
+conservative and under-counts comments rather than calling code a comment. The
+totals are never derived this way: they always come from git's own count, and code
+is the remainder once comments and blanks are taken out, so the split can never add
+up to something git disagrees with.
 
 `modified` is lines rewritten in place, approximated per file as the smaller of
 its added and removed counts. Git records no such thing; a diff only ever adds and

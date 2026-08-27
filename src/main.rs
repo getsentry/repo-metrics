@@ -9,6 +9,7 @@ mod github;
 mod html;
 mod identity;
 mod ingest;
+mod lines;
 mod model;
 mod output;
 mod picker;
@@ -22,6 +23,7 @@ mod sync;
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use identity::Identities;
+use lines::Lines;
 use model::*;
 use output::*;
 use query::*;
@@ -54,6 +56,9 @@ struct Scope {
     /// Restrict to a path prefix, e.g. src/sentry/api
     #[arg(long, global = true)]
     path: Option<String>,
+    /// Which lines the line metrics count: all, source-and-comments, or source-only
+    #[arg(long, global = true, value_enum, default_value = "all")]
+    lines: Lines,
     /// How to render: table (terminal), json, or a self-contained html page
     #[arg(long, short, global = true, value_enum, default_value = "table")]
     format: Format,
@@ -408,7 +413,18 @@ fn main() -> Result<()> {
         } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::timeseries(&c, &ids, &f, by, metric, split, top, overlay, per);
+            let mut o = cmds::timeseries(
+                &c,
+                &ids,
+                &f,
+                by,
+                metric,
+                split,
+                top,
+                overlay,
+                per,
+                scope.lines,
+            );
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
@@ -422,14 +438,14 @@ fn main() -> Result<()> {
         } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::folders(&c, &ids, &f, by, metric, depth, top, per);
+            let mut o = cmds::folders(&c, &ids, &f, by, metric, depth, top, per, scope.lines);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
         Cmd::Hotspots { depth, top, scope } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::hotspots(&c, &ids, &f, depth, top);
+            let mut o = cmds::hotspots(&c, &ids, &f, depth, top, scope.lines);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
@@ -442,7 +458,7 @@ fn main() -> Result<()> {
         } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::compare(&c, &ids, &f, &a, &b, depth, top)?;
+            let mut o = cmds::compare(&c, &ids, &f, &a, &b, depth, top, scope.lines)?;
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
@@ -457,7 +473,18 @@ fn main() -> Result<()> {
         } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::flags(&c, &ids, &f, depth, z, min_churn, window, min_baseline, top);
+            let mut o = cmds::flags(
+                &c,
+                &ids,
+                &f,
+                depth,
+                z,
+                min_churn,
+                window,
+                min_baseline,
+                top,
+                scope.lines,
+            );
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
@@ -470,14 +497,14 @@ fn main() -> Result<()> {
         } => {
             let (c, _) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth, measure)?;
+            let mut o = cmds::tree(&c, &f, at.as_deref(), &subpath, depth, measure, scope.lines)?;
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }
         Cmd::Authors { top, scope } => {
             let (c, ids) = load()?;
             let f = scope.filter()?;
-            let mut o = cmds::authors(&c, &ids, &f, top);
+            let mut o = cmds::authors(&c, &ids, &f, top, scope.lines);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }

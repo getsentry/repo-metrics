@@ -103,6 +103,13 @@ rebases.</li>
 <li><b>&ldquo;File touches&rdquo; is not a count of files.</b> A file changed in
 fifty commits is fifty touches. Distinct file counts appear only in the folder-size
 view.</li>
+<li><b>Line counts include blanks and comments by default</b>, because that is what
+git counts. The <i>count lines</i> control drops whitespace, or whitespace and
+comments as well. Comment and code are told apart by a lexical rule, not a
+parser: reading a whole file it is exact, but a diff shows only a hunk, so a block
+comment opened outside that hunk can be missed. It under-counts comments rather than
+mistaking code for one, and the totals themselves always stay as git reported
+them.</li>
 <li><b>Only the default branch is read.</b> Feature branches, local commits and
 uncommitted work never appear.</li>
 </ul>
