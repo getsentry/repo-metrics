@@ -409,9 +409,8 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
     // Which lines a line metric counts. Defaults to every line, so a link written
     // before this control existed still means what it meant.
     let lines = match q.get("lines").map(|s| s.as_str()) {
-        Some("nonblank") => Lines::NonBlank,
-        Some("code") => Lines::Code,
-        Some("comments") => Lines::Comments,
+        Some("source-and-comments") => Lines::SourceAndComments,
+        Some("source-only") => Lines::SourceOnly,
         _ => Lines::All,
     };
 
@@ -546,7 +545,7 @@ const FIELDS={{
   metric:{{t:'select',label:'metric',opts:['commits','churn','added','removed','modified','files'],def:'commits'}},
   split: {{t:'select',label:'split by',opts:['none','assist','tool','author','language'],def:'none'}},
   per:   {{t:'select',label:'per',opts:['total','commit','human'],def:'total'}},
-  lines: {{t:'select',label:'count lines',opts:['all','nonblank','code','comments'],def:'all'}},
+  lines: {{t:'select',label:'count lines',opts:['all','source-and-comments','source-only'],def:'all'}},
   overlay:{{t:'select',label:'overlay',opts:['authors','none'],def:'authors'}},
   measure:{{t:'select',label:'size by',opts:['files','sloc','bytes'],def:'files'}},
   depth: {{t:'select',label:'depth',opts:['1','2','3'],def:'1'}},

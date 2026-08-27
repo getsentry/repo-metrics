@@ -2,9 +2,9 @@
 //!
 //! Git counts lines, not source lines: a diff that adds forty blank lines and a
 //! licence header reads exactly like one that adds forty lines of logic. Keeping
-//! the three apart is what lets "lines" mean something specific, and it is the only
-//! way to watch comment volume move on its own — which is worth watching when a
-//! growing share of the code is written by agents.
+//! the three apart is what lets "lines" mean something specific, and it is what puts
+//! comment volume within reach — the gap between counting comments and not — which
+//! is worth watching when a growing share of the code is written by agents.
 
 /// What a single line of a file is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -16,27 +16,31 @@ pub enum Kind {
 
 /// Which lines a metric counts. Applies to every line measure — churn, added,
 /// removed, modified, and folder sizes — so one control answers "lines of what?".
+///
+/// Three nested modes, each one dropping a category: everything, then without
+/// whitespace, then without comments either. Whitespace never gets a mode of its
+/// own — nobody needs a blank-line count as a metric, it is only ever the thing
+/// being excluded.
 #[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum, Debug, Default)]
 pub enum Lines {
-    /// Every line, exactly as git counts it. The default, so no existing number
-    /// moves when the toggle is added.
+    /// Every line, exactly as `wc -l` and git count them. The default, so no
+    /// existing number moves when the toggle is added.
     #[default]
     All,
-    /// Everything except blank lines.
-    NonBlank,
-    /// Code only: no blank lines, no comments.
-    Code,
-    /// Comment lines only.
-    Comments,
+    /// Whitespace removed.
+    #[value(name = "source-and-comments")]
+    SourceAndComments,
+    /// Whitespace and comments removed.
+    #[value(name = "source-only")]
+    SourceOnly,
 }
 
 impl Lines {
     pub fn label(&self) -> &'static str {
         match self {
             Lines::All => "lines",
-            Lines::NonBlank => "non-blank lines",
-            Lines::Code => "code lines",
-            Lines::Comments => "comment lines",
+            Lines::SourceAndComments => "source and comment lines",
+            Lines::SourceOnly => "source lines",
         }
     }
     /// Suffix for a chart title. `All` adds nothing, since it is what "lines" has
@@ -44,20 +48,18 @@ impl Lines {
     pub fn suffix(&self) -> &'static str {
         match self {
             Lines::All => "",
-            Lines::NonBlank => " (non-blank)",
-            Lines::Code => " (code only)",
-            Lines::Comments => " (comments only)",
+            Lines::SourceAndComments => " (source + comments)",
+            Lines::SourceOnly => " (source only)",
         }
     }
     /// Given a total and its blank/comment parts, how many lines this mode counts.
-    /// Code is the remainder rather than its own counter, so the three always sum
-    /// back to the total git reported.
+    /// Source is the remainder rather than its own counter, so no mode can report
+    /// more than the total git gave us.
     pub fn of(&self, total: i64, comment: i64, blank: i64) -> i64 {
         match self {
             Lines::All => total,
-            Lines::NonBlank => (total - blank).max(0),
-            Lines::Code => (total - blank - comment).max(0),
-            Lines::Comments => comment,
+            Lines::SourceAndComments => (total - blank).max(0),
+            Lines::SourceOnly => (total - blank - comment).max(0),
         }
     }
 }
@@ -306,11 +308,23 @@ mod tests {
     }
 
     #[test]
-    fn lines_modes_sum_back_to_the_total() {
+    fn each_mode_drops_one_more_category() {
         let (total, comment, blank) = (100i64, 20, 15);
         assert_eq!(Lines::All.of(total, comment, blank), 100);
-        assert_eq!(Lines::NonBlank.of(total, comment, blank), 85);
-        assert_eq!(Lines::Code.of(total, comment, blank), 65);
-        assert_eq!(Lines::Comments.of(total, comment, blank), 20);
+        assert_eq!(Lines::SourceAndComments.of(total, comment, blank), 85);
+        assert_eq!(Lines::SourceOnly.of(total, comment, blank), 65);
+        // Comment volume stays readable as the gap between the last two.
+        let gap = Lines::SourceAndComments.of(total, comment, blank)
+            - Lines::SourceOnly.of(total, comment, blank);
+        assert_eq!(gap, comment);
+    }
+
+    #[test]
+    fn no_mode_can_exceed_the_total_git_reported() {
+        // A classifier that over-counted would otherwise drive source negative.
+        for m in [Lines::All, Lines::SourceAndComments, Lines::SourceOnly] {
+            assert!(m.of(10, 99, 99) <= 10);
+            assert!(m.of(10, 99, 99) >= 0);
+        }
     }
 }

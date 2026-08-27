@@ -56,7 +56,7 @@ struct Scope {
     /// Restrict to a path prefix, e.g. src/sentry/api
     #[arg(long, global = true)]
     path: Option<String>,
-    /// Which lines the line metrics count: all, non-blank, code, or comments
+    /// Which lines the line metrics count: all, source-and-comments, or source-only
     #[arg(long, global = true, value_enum, default_value = "all")]
     lines: Lines,
     /// How to render: table (terminal), json, or a self-contained html page

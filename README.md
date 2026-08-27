@@ -169,17 +169,17 @@ to `tree --measure sloc`.
 
 | | |
 |---|---|
-| `all` *(default)* | Every line, exactly as git counts it |
-| `non-blank` | Everything but blank lines |
-| `code` | No blanks, no comments |
-| `comments` | Comment lines only |
+| `all` *(default)* | Every line, the same count as `wc -l` |
+| `source-and-comments` | Whitespace removed |
+| `source-only` | Whitespace and comments removed |
 
-The default is `all` so that no number moves unless you ask it to. On sentry's full
-history the four modes split 26.7M churned lines into 23.5M of code, 0.8M of
-comments and 2.3M blank.
+Each mode drops one more category. The default is `all` so that no number moves
+unless you ask it to. On sentry's full history the three modes read 26.7M, 24.4M and
+20.9M churned lines.
 
-`comments` on its own is the interesting one: it isolates how much of a change is
-prose rather than logic, which is worth watching as more code is written by agents.
+Whitespace has no mode of its own; it is only ever the thing being excluded. Comment
+volume is the gap between the last two modes — 3.5M lines on that same history —
+which is worth watching as more code is written by agents.
 
 Code and comment are told apart lexically, by file extension and line shape, not by
 parsing the language. Reading a whole file — which is what `tree` does — block

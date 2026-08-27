@@ -13,8 +13,8 @@ use std::path::PathBuf;
 /// commits from whatever branch happened to be checked out at ingest time, and
 /// nothing short of a re-read can tell those apart from real history.
 /// 4: store the comment/blank split of every change, so line metrics can be asked
-/// for code only, comments only, or everything. The counts are only obtainable from
-/// diff content, which earlier caches never recorded.
+/// for everything, for source and comments, or for source alone. The counts are
+/// only obtainable from diff content, which earlier caches never recorded.
 pub const PARSER_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Default)]

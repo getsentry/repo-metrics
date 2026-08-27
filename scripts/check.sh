@@ -69,8 +69,8 @@ for i in range(len(c)):
 assert checked>12, f"only {checked} buckets compared"
 PYEOF
 
-# The line-kind toggle has to partition the same total git reported: every counted
-# line is code, a comment or blank, and the default must still be all of them.
+# The line-kind modes are nested: each drops one more category off the total git
+# reported, and the default must still be every line.
 python3 - "$B" <<'PYEOF' || { echo "  FAIL line-kind partition"; fail=1; }
 import json,subprocess,sys
 B=sys.argv[1]
@@ -79,12 +79,14 @@ def total(mode,metric="churn"):
         "--metric",metric,"--per","total","--overlay","none","--lines",mode,
         "--format","json"],capture_output=True,text=True).stdout
     return round(sum(json.loads(out)["series"][0]["points"]))
-a=total("all"); nb=total("non-blank"); c=total("code"); cm=total("comments")
-assert c+cm==nb, f"code {c} + comments {cm} != non-blank {nb}"
-assert nb<=a, f"non-blank {nb} exceeds all {a}"
-assert cm>0 and c>0, f"a mode collapsed to zero: code={c} comments={cm}"
+a=total("all"); sc=total("source-and-comments"); so=total("source-only")
+# Each mode drops one more category, so they can only shrink, never grow.
+assert so<=sc<=a, f"modes not nested: source-only={so} source+comments={sc} all={a}"
+assert so>0, "source-only collapsed to zero"
+assert sc<a, "nothing was excluded as whitespace"
+assert so<sc, "nothing was excluded as comments"
 # added and removed must still sum to churn in a non-default mode
-for m in ("code","comments"):
+for m in ("source-and-comments","source-only"):
     assert total(m,"added")+total(m,"removed")==total(m,"churn"), f"{m}: a+r != churn"
 PYEOF
 
