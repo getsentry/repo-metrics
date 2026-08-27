@@ -169,22 +169,33 @@ pub fn load_cache() -> Result<Cache> {
         });
     }
     let f = std::fs::File::open(&p).with_context(|| format!("opening {}", p.display()))?;
-    let rd = std::io::BufReader::new(f);
-    let c: Cache = match bincode::deserialize_from(rd) {
-        Ok(c) => c,
-        // A cache we can't read is a cache worth throwing away; re-ingest is cheap.
-        Err(_) => Cache {
-            version: PARSER_VERSION,
-            repos: Vec::new(),
-        },
-    };
-    if c.version != PARSER_VERSION {
+    let mut rd = std::io::BufReader::new(f);
+
+    // Read the version on its own, before anything else is decoded.
+    //
+    // It has to happen in this order. The version is the first field, and bincode
+    // lays fields out positionally, so a file written by an older parser decodes as
+    // whatever the current structs happen to describe. Checking `c.version` after a
+    // full deserialize is checking a field that was only reachable if the decode
+    // already succeeded — and it does not: reading a stale layout makes bincode take
+    // some unrelated bytes for a length and abort the process trying to allocate
+    // exabytes. That is not an error this or any caller can catch.
+    let mut head = [0u8; 4];
+    if std::io::Read::read_exact(&mut rd, &mut head).is_err()
+        || u32::from_le_bytes(head) != PARSER_VERSION
+    {
         return Ok(Cache {
             version: PARSER_VERSION,
             repos: Vec::new(),
         });
     }
-    Ok(c)
+    std::io::Seek::seek(&mut rd, std::io::SeekFrom::Start(0))?;
+
+    // A cache we can't read is a cache worth throwing away; re-ingest is cheap.
+    Ok(bincode::deserialize_from(rd).unwrap_or_else(|_| Cache {
+        version: PARSER_VERSION,
+        repos: Vec::new(),
+    }))
 }
 
 pub fn save_cache(c: &Cache) -> Result<()> {
@@ -261,4 +272,24 @@ pub fn dir_at_depth(dir: &str, depth: usize) -> &str {
         }
     }
     dir
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `load_cache` reads the version out of the first four bytes without decoding
+    /// anything after it. That only works while the version stays the leading field
+    /// in the layout bincode writes — if it ever moves, a stale cache goes back to
+    /// aborting the process instead of being discarded.
+    #[test]
+    fn version_is_the_first_four_bytes_of_a_cache() {
+        let c = Cache {
+            version: PARSER_VERSION,
+            repos: Vec::new(),
+        };
+        let bytes = bincode::serialize(&c).expect("cache serialises");
+        let head = u32::from_le_bytes(bytes[..4].try_into().expect("four bytes"));
+        assert_eq!(head, PARSER_VERSION);
+    }
 }
