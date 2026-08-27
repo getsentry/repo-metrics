@@ -69,6 +69,25 @@ for i in range(len(c)):
 assert checked>12, f"only {checked} buckets compared"
 PYEOF
 
+# The line-kind toggle has to partition the same total git reported: every counted
+# line is code, a comment or blank, and the default must still be all of them.
+python3 - "$B" <<'PYEOF' || { echo "  FAIL line-kind partition"; fail=1; }
+import json,subprocess,sys
+B=sys.argv[1]
+def total(mode,metric="churn"):
+    out=subprocess.run([B,"timeseries","--repo","sentry","--by","month","--since","3y",
+        "--metric",metric,"--per","total","--overlay","none","--lines",mode,
+        "--format","json"],capture_output=True,text=True).stdout
+    return round(sum(json.loads(out)["series"][0]["points"]))
+a=total("all"); nb=total("non-blank"); c=total("code"); cm=total("comments")
+assert c+cm==nb, f"code {c} + comments {cm} != non-blank {nb}"
+assert nb<=a, f"non-blank {nb} exceeds all {a}"
+assert cm>0 and c>0, f"a mode collapsed to zero: code={c} comments={cm}"
+# added and removed must still sum to churn in a non-default mode
+for m in ("code","comments"):
+    assert total(m,"added")+total(m,"removed")==total(m,"churn"), f"{m}: a+r != churn"
+PYEOF
+
 # compare puts two different things in one set of columns; they must stay labelled
 # and separated, and the directory rows must say what they measure.
 $B compare 2025-H2 2026-H1 --repo sentry --top 5 --format json 2>/dev/null \

@@ -1,5 +1,6 @@
 use crate::git;
 use crate::identity::{AssistKind, Identities};
+use crate::lines::Lines;
 use crate::model::*;
 use crate::output::*;
 use crate::query::*;
@@ -19,6 +20,7 @@ pub fn timeseries(
     top: usize,
     overlay: Overlay,
     per: Per,
+    lines: Lines,
 ) -> Output {
     let repos = select_repos(cache, f);
     let mut buckets: HashMap<(String, i32), f64> = HashMap::new();
@@ -51,7 +53,7 @@ pub fn timeseries(
                     set.insert(key);
                 }
             }
-            for (name, v) in split_values(&res, split, m, &f.path) {
+            for (name, v) in split_values(&res, split, m, &f.path, lines) {
                 // Count the commit before skipping a zero. A commit that removed
                 // nothing is still a commit, and leaving it out of the divisor
                 // would inflate "lines removed per commit" and stop added and
@@ -84,14 +86,18 @@ pub fn timeseries(
             .collect(),
     });
     Output::Series {
-        title: format!("Commits over time — {}{}", m.label(), per_suffix(per)),
+        title: format!(
+            "Commits over time — {}{}",
+            metric_label(m, lines),
+            per_suffix(per)
+        ),
         subtitle: range_label(f, &repos),
         source: None,
         scope: None,
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: split != Split::None,
-        y_label: format!("{}{}", m.label(), per_suffix(per)),
+        y_label: format!("{}{}", metric_label(m, lines), per_suffix(per)),
         rate: per != Per::Total,
         overlay: overlay_series,
         overlay_label: Some("distinct humans".into()),
@@ -162,13 +168,17 @@ fn split_values(
     split: Split,
     m: Metric,
     path: &Option<String>,
+    lines: Lines,
 ) -> Vec<(String, f64)> {
     match split {
-        Split::None => vec![("all".to_string(), metric_value(r, m, path))],
-        Split::Assist => vec![(r.assist.label().to_string(), metric_value(r, m, path))],
-        Split::Author => vec![(r.author().to_string(), metric_value(r, m, path))],
+        Split::None => vec![("all".to_string(), metric_value(r, m, path, lines))],
+        Split::Assist => vec![(
+            r.assist.label().to_string(),
+            metric_value(r, m, path, lines),
+        )],
+        Split::Author => vec![(r.author().to_string(), metric_value(r, m, path, lines))],
         Split::Tool => {
-            let v = metric_value(r, m, path);
+            let v = metric_value(r, m, path, lines);
             if r.tools.is_empty() {
                 vec![(
                     match r.assist {
@@ -197,10 +207,10 @@ fn split_values(
                 }
                 let v = match m {
                     Metric::Commits | Metric::Files => 1.0,
-                    Metric::Churn => c.churn() as f64,
-                    Metric::Added => c.added.max(0) as f64,
-                    Metric::Removed => c.removed.max(0) as f64,
-                    Metric::Modified => c.modified() as f64,
+                    Metric::Churn => c.churn_of(lines) as f64,
+                    Metric::Added => c.added_of(lines) as f64,
+                    Metric::Removed => c.removed_of(lines) as f64,
+                    Metric::Modified => c.modified_of(lines) as f64,
                 };
                 *acc.entry(language_of(p).to_string()).or_insert(0.0) += v;
             }
@@ -229,6 +239,7 @@ pub fn folders(
     depth: usize,
     top: usize,
     per: Per,
+    lines: Lines,
 ) -> Output {
     let repos = select_repos(cache, f);
     let mut buckets: HashMap<(String, i32), f64> = HashMap::new();
@@ -265,10 +276,10 @@ pub fn folders(
                 let v = match m {
                     Metric::Commits => 1.0,
                     Metric::Files => 1.0,
-                    Metric::Churn => c.churn() as f64,
-                    Metric::Added => c.added.max(0) as f64,
-                    Metric::Removed => c.removed.max(0) as f64,
-                    Metric::Modified => c.modified() as f64,
+                    Metric::Churn => c.churn_of(lines) as f64,
+                    Metric::Added => c.added_of(lines) as f64,
+                    Metric::Removed => c.removed_of(lines) as f64,
+                    Metric::Modified => c.modified_of(lines) as f64,
                 };
                 if m == Metric::Commits {
                     seen.insert(key, 1.0);
@@ -308,7 +319,7 @@ pub fn folders(
     Output::Series {
         title: format!(
             "Folders over time — {}{} (depth {depth})",
-            m.label(),
+            metric_label(m, lines),
             per_suffix(per)
         ),
         subtitle: range_label(f, &repos),
@@ -317,7 +328,7 @@ pub fn folders(
         x: ax.iter().map(|(_, l)| l.clone()).collect(),
         series,
         stacked: true,
-        y_label: format!("{}{}", m.label(), per_suffix(per)),
+        y_label: format!("{}{}", metric_label(m, lines), per_suffix(per)),
         rate: per != Per::Total,
         overlay: None,
         overlay_label: None,
@@ -346,7 +357,13 @@ impl Default for Roll {
     }
 }
 
-fn rollup_dirs(cache: &Cache, ids: &Identities, f: &Filter, depth: usize) -> Vec<(String, Roll)> {
+fn rollup_dirs(
+    cache: &Cache,
+    ids: &Identities,
+    f: &Filter,
+    depth: usize,
+    lines: Lines,
+) -> Vec<(String, Roll)> {
     let repos = select_repos(cache, f);
     let mut acc: HashMap<String, Roll> = HashMap::new();
     for r in &repos {
@@ -368,8 +385,8 @@ fn rollup_dirs(cache: &Cache, ids: &Identities, f: &Filter, depth: usize) -> Vec
                 }
                 .to_string();
                 let e = touched.entry(key).or_insert((0.0, 0.0, 0.0));
-                e.0 += c.added.max(0) as f64;
-                e.1 += c.removed.max(0) as f64;
+                e.0 += c.added_of(lines) as f64;
+                e.1 += c.removed_of(lines) as f64;
                 e.2 += 1.0;
             }
             for (key, (a, rm, fl)) in touched {
@@ -391,9 +408,16 @@ fn rollup_dirs(cache: &Cache, ids: &Identities, f: &Filter, depth: usize) -> Vec
     v
 }
 
-pub fn hotspots(cache: &Cache, ids: &Identities, f: &Filter, depth: usize, top: usize) -> Output {
+pub fn hotspots(
+    cache: &Cache,
+    ids: &Identities,
+    f: &Filter,
+    depth: usize,
+    top: usize,
+    lines: Lines,
+) -> Output {
     let repos = select_repos(cache, f);
-    let rolled = rollup_dirs(cache, ids, f, depth);
+    let rolled = rollup_dirs(cache, ids, f, depth, lines);
     // "(root)" is the bucket for files with no directory, not a folder you can
     // descend into.
     let drill: Vec<Option<String>> = rolled
@@ -445,6 +469,7 @@ pub fn compare(
     b: &str,
     depth: usize,
     top: usize,
+    lines: Lines,
 ) -> Result<Output> {
     let (a0, a1, alab) = parse_period(a)?;
     let (b0, b1, blab) = parse_period(b)?;
@@ -482,11 +507,21 @@ pub fn compare(
         ]);
     };
 
-    let sa = summarize(cache, ids, &fa);
-    let sb = summarize(cache, ids, &fb);
+    let sa = summarize(cache, ids, &fa, lines);
+    let sb = summarize(cache, ids, &fb, lines);
     push("commits".into(), sa.0, sb.0, &mut rows);
-    push("lines added".into(), sa.1, sb.1, &mut rows);
-    push("lines removed".into(), sa.2, sb.2, &mut rows);
+    push(
+        format!("lines added{}", lines.suffix()),
+        sa.1,
+        sb.1,
+        &mut rows,
+    );
+    push(
+        format!("lines removed{}", lines.suffix()),
+        sa.2,
+        sb.2,
+        &mut rows,
+    );
     // File touches, not distinct files: one row per file per commit.
     push("file touches".into(), sa.3, sb.3, &mut rows);
     push("distinct authors".into(), sa.4, sb.4, &mut rows);
@@ -497,11 +532,11 @@ pub fn compare(
     drill.resize(rows.len(), None);
 
     // Then the folders that moved most between the two windows.
-    let ra: HashMap<String, f64> = rollup_dirs(cache, ids, &fa, depth)
+    let ra: HashMap<String, f64> = rollup_dirs(cache, ids, &fa, depth, lines)
         .into_iter()
         .map(|(k, v)| (k, v.added + v.removed))
         .collect();
-    let rb: HashMap<String, f64> = rollup_dirs(cache, ids, &fb, depth)
+    let rb: HashMap<String, f64> = rollup_dirs(cache, ids, &fb, depth, lines)
         .into_iter()
         .map(|(k, v)| (k, v.added + v.removed))
         .collect();
@@ -565,6 +600,7 @@ fn summarize(
     cache: &Cache,
     ids: &Identities,
     f: &Filter,
+    lines: Lines,
 ) -> (f64, f64, f64, f64, f64, f64, f64, f64) {
     let repos = select_repos(cache, f);
     let (mut commits, mut added, mut removed, mut files, mut agent) = (0.0, 0.0, 0.0, 0.0, 0.0);
@@ -578,8 +614,8 @@ fn summarize(
                     continue;
                 }
                 hit = true;
-                added += c.added.max(0) as f64;
-                removed += c.removed.max(0) as f64;
+                added += c.added_of(lines) as f64;
+                removed += c.removed_of(lines) as f64;
                 files += 1.0;
             }
             if hit {
@@ -620,6 +656,7 @@ pub fn flags(
     window: usize,
     min_baseline: usize,
     top: usize,
+    lines: Lines,
 ) -> Output {
     let repos = select_repos(cache, f);
     // (repo, dir) -> week -> churn
@@ -645,7 +682,7 @@ pub fn flags(
                 *acc.entry((r.name.clone(), key))
                     .or_default()
                     .entry(wk)
-                    .or_insert(0.0) += c.churn() as f64;
+                    .or_insert(0.0) += c.churn_of(lines) as f64;
             }
         }
     }
@@ -737,7 +774,7 @@ pub fn flags(
 /// Commits, lines added, lines removed, classification, and the agent tools seen.
 type AuthorTally = (f64, f64, f64, AssistKind, Vec<String>);
 
-pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Output {
+pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize, lines: Lines) -> Output {
     let repos = select_repos(cache, f);
     let mut acc: HashMap<String, AuthorTally> = HashMap::new();
     for r in &repos {
@@ -750,8 +787,8 @@ pub fn authors(cache: &Cache, ids: &Identities, f: &Filter, top: usize) -> Outpu
                     continue;
                 }
                 hit = true;
-                added += c.added.max(0) as f64;
-                removed += c.removed.max(0) as f64;
+                added += c.added_of(lines) as f64;
+                removed += c.removed_of(lines) as f64;
             }
             if !hit {
                 continue;
@@ -952,6 +989,7 @@ pub fn tree(
     path: &str,
     depth: usize,
     measure: Measure,
+    lines: Lines,
 ) -> Result<Output> {
     let rd = resolve_repo(cache, f)?;
     let repo_path = Path::new(&rd.path);
@@ -975,10 +1013,17 @@ pub fn tree(
             }
         }
         Measure::Sloc => {
-            let lines = git::sloc(repo_path, &sha)?;
+            let counts = git::line_counts(repo_path, &sha)?;
             for e in entries.iter_mut() {
-                // Binaries have no line count; git grep omits them entirely.
-                e.size = lines.get(&e.path).copied().unwrap_or(0);
+                // Binaries have no line count and are absent from the map.
+                e.size = match counts.get(&e.path) {
+                    Some(&(code, comment, blank)) => lines.of(
+                        (code + comment + blank) as i64,
+                        comment as i64,
+                        blank as i64,
+                    ) as u64,
+                    None => 0,
+                };
             }
         }
     }
@@ -997,9 +1042,10 @@ pub fn tree(
                 human_bytes(root.size)
             ),
             Measure::Sloc => format!(
-                "{} files · {} lines",
+                "{} files · {} {}",
                 group(root.files as i64),
-                group(root.size as i64)
+                group(root.size as i64),
+                lines.label()
             ),
             Measure::Files => format!("{} files", group(root.files as i64)),
         },

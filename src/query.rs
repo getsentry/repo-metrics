@@ -1,4 +1,5 @@
 use crate::identity::{AssistKind, Identities};
+use crate::lines::Lines;
 use crate::model::*;
 use crate::output::*;
 use anyhow::{bail, Result};
@@ -31,6 +32,14 @@ pub enum Metric {
 }
 
 impl Metric {
+    /// Whether this metric counts lines, and so answers to the line-kind toggle.
+    /// `Commits` and `Files` count events, not text, and ignore it.
+    pub fn counts_lines(&self) -> bool {
+        matches!(
+            self,
+            Metric::Churn | Metric::Added | Metric::Removed | Metric::Modified
+        )
+    }
     pub fn label(&self) -> &'static str {
         match self {
             Metric::Commits => "commits",
@@ -40,6 +49,17 @@ impl Metric {
             Metric::Modified => "lines modified",
             Metric::Files => "file touches",
         }
+    }
+}
+
+/// A metric's label, saying which lines it counted whenever that is not the
+/// default. A chart that silently switched to code-only would be worse than one
+/// that never offered the choice.
+pub fn metric_label(m: Metric, l: Lines) -> String {
+    if m.counts_lines() {
+        format!("{}{}", m.label(), l.suffix())
+    } else {
+        m.label().to_string()
     }
 }
 
@@ -331,7 +351,7 @@ pub fn touches_path(r: &Resolved, path: &Option<String>) -> bool {
 }
 
 /// Sum a metric over one commit, honouring the active path filter.
-pub fn metric_value(r: &Resolved, m: Metric, path: &Option<String>) -> f64 {
+pub fn metric_value(r: &Resolved, m: Metric, path: &Option<String>, l: Lines) -> f64 {
     let changes = r.repo.changes_of(r.commit);
     match m {
         Metric::Commits => {
@@ -351,10 +371,10 @@ pub fn metric_value(r: &Resolved, m: Metric, path: &Option<String>) -> f64 {
             .iter()
             .filter(|c| path_matches(r.repo.s(c.dir), r.repo.s(c.path), path))
             .map(|c| match m {
-                Metric::Churn => c.churn() as f64,
-                Metric::Added => c.added.max(0) as f64,
-                Metric::Removed => c.removed.max(0) as f64,
-                Metric::Modified => c.modified() as f64,
+                Metric::Churn => c.churn_of(l) as f64,
+                Metric::Added => c.added_of(l) as f64,
+                Metric::Removed => c.removed_of(l) as f64,
+                Metric::Modified => c.modified_of(l) as f64,
                 Metric::Files => 1.0,
                 Metric::Commits => 0.0,
             })

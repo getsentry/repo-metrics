@@ -1,3 +1,4 @@
+use crate::lines::Lines;
 use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,10 @@ use std::path::PathBuf;
 /// 3: read the default branch instead of HEAD. Caches written before this may hold
 /// commits from whatever branch happened to be checked out at ingest time, and
 /// nothing short of a re-read can tell those apart from real history.
-pub const PARSER_VERSION: u32 = 3;
+/// 4: store the comment/blank split of every change, so line metrics can be asked
+/// for code only, comments only, or everything. The counts are only obtainable from
+/// diff content, which earlier caches never recorded.
+pub const PARSER_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Cache {
@@ -60,17 +64,39 @@ pub struct Change {
     /// touched with no meaningful line count, not a file to skip.
     pub added: i32,
     pub removed: i32,
+    /// How the lines counted above split by kind. Only the comment and blank parts
+    /// are stored; code is the remainder. Keeping the total authoritative and
+    /// deriving code from it means the breakdown can never drift away from what git
+    /// itself reported, however the classifier is later changed.
+    pub added_comment: i32,
+    pub added_blank: i32,
+    pub removed_comment: i32,
+    pub removed_blank: i32,
 }
 
 impl Change {
-    pub fn churn(&self) -> i64 {
-        self.added.max(0) as i64 + self.removed.max(0) as i64
+    pub fn added_of(&self, l: Lines) -> i64 {
+        l.of(
+            self.added.max(0) as i64,
+            self.added_comment.max(0) as i64,
+            self.added_blank.max(0) as i64,
+        )
+    }
+    pub fn removed_of(&self, l: Lines) -> i64 {
+        l.of(
+            self.removed.max(0) as i64,
+            self.removed_comment.max(0) as i64,
+            self.removed_blank.max(0) as i64,
+        )
+    }
+    pub fn churn_of(&self, l: Lines) -> i64 {
+        self.added_of(l) + self.removed_of(l)
     }
     /// Lines rewritten rather than purely added or deleted. A diff records only
     /// additions and removals, so the overlap between them is the best available
     /// stand-in for an edit in place.
-    pub fn modified(&self) -> i64 {
-        (self.added.max(0) as i64).min(self.removed.max(0) as i64)
+    pub fn modified_of(&self, l: Lines) -> i64 {
+        self.added_of(l).min(self.removed_of(l))
     }
     /// Binary files are touched-but-uncounted, which callers need to distinguish
     /// from a real zero-line change.

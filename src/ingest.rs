@@ -1,4 +1,5 @@
 use crate::git;
+use crate::lines;
 use crate::model::*;
 use anyhow::Result;
 use chrono::DateTime;
@@ -11,11 +12,25 @@ const REC: char = '\x1e';
 const FLD: char = '\x1f';
 /// Enough shas per worker that process startup is noise, small enough that 14 cores
 /// all stay busy to the end of a 109k-commit history.
-const CHUNK: usize = 3000;
+///
+/// Kept low deliberately: the diff pass asks for patch text, which runs about fifty
+/// times the volume of a numstat, and every worker holds its whole chunk in memory
+/// at once. Smaller shards trade a few milliseconds of process startup for a peak
+/// that stays in the tens of megabytes.
+const CHUNK: usize = 500;
 
-/// One file's entry in a numstat block: added, removed, path. Added and removed
-/// are -1 for binaries, which report `-` rather than a count.
-pub type FileStat = (i32, i32, String);
+/// One file's entry in a diff. `added` and `removed` come from the numstat block
+/// and are -1 for binaries, which report `-` rather than a count. The comment and
+/// blank counts are classified from the patch text for the same lines.
+pub struct FileStat {
+    pub added: i32,
+    pub removed: i32,
+    pub added_comment: i32,
+    pub added_blank: i32,
+    pub removed_comment: i32,
+    pub removed_blank: i32,
+    pub path: String,
+}
 /// A commit's sha paired with the files it touched.
 pub type ShaFiles = (String, Vec<FileStat>);
 
@@ -107,22 +122,85 @@ fn parse_meta(out: &str) -> Vec<RawCommit> {
     commits
 }
 
-fn parse_numstat(out: &str) -> Vec<ShaFiles> {
+/// Classify the changed lines of one file's patch.
+///
+/// The numstat block already gives authoritative totals, so this only has to split
+/// them into comments and blanks. Both sides are walked at once: a hunk's context
+/// lines belong to the old file *and* the new one, so feeding them through both
+/// block-comment states keeps a `/* ... */` or a docstring recognised across the
+/// lines that follow it. State still restarts at each hunk, since a hunk carries no
+/// knowledge of the file above it — the counts are close, not exact, which is why
+/// only comments and blanks are derived this way and the totals never are.
+fn classify_patch(path: &str, body: &[&str]) -> (i32, i32, i32, i32) {
+    let style = lines::style_of(path);
+    let (mut ac, mut ab, mut rc, mut rb) = (0i32, 0i32, 0i32, 0i32);
+    let (mut new_block, mut old_block): (lines::Block, lines::Block) = (None, None);
+    let mut in_hunk = false;
+    for l in body {
+        if l.starts_with("@@") {
+            in_hunk = true;
+            new_block = None;
+            old_block = None;
+            continue;
+        }
+        if !in_hunk {
+            continue;
+        }
+        // "\ No newline at end of file" is a note about the diff, not a line of it.
+        if l.starts_with('\\') {
+            continue;
+        }
+        let (mark, text) = l.split_at(l.chars().next().map(|c| c.len_utf8()).unwrap_or(0));
+        match mark {
+            "+" => match lines::classify(style, text, &mut new_block) {
+                lines::Kind::Comment => ac += 1,
+                lines::Kind::Blank => ab += 1,
+                lines::Kind::Code => {}
+            },
+            "-" => match lines::classify(style, text, &mut old_block) {
+                lines::Kind::Comment => rc += 1,
+                lines::Kind::Blank => rb += 1,
+                lines::Kind::Code => {}
+            },
+            // Context belongs to both sides; advance both, count neither.
+            " " => {
+                lines::classify(style, text, &mut new_block);
+                lines::classify(style, text, &mut old_block);
+            }
+            _ => {}
+        }
+    }
+    (ac, ab, rc, rb)
+}
+
+/// Parse one `--numstat -p` run.
+///
+/// The numstat rows and the patch sections describe the same files in the same
+/// order, so they are matched by position. Nothing is read out of the `diff --git`
+/// header: its shape depends on the repo's own diff config, while the ordering does
+/// not. A section that fails to line up leaves the file with totals and no
+/// breakdown, rather than a breakdown attributed to the wrong file.
+fn parse_diff(out: &str) -> Vec<ShaFiles> {
     let mut result = Vec::new();
     for rec in out.split(REC) {
         if rec.trim().is_empty() {
             continue;
         }
-        let mut lines = rec.lines();
-        let sha = match lines.next() {
+        let all: Vec<&str> = rec.lines().collect();
+        let sha = match all.first() {
             Some(s) => s.trim().to_string(),
             None => continue,
         };
         if sha.is_empty() {
             continue;
         }
+        let split = all
+            .iter()
+            .position(|l| l.starts_with("diff --git"))
+            .unwrap_or(all.len());
+
         let mut files = Vec::new();
-        for l in lines {
+        for l in &all[1..split] {
             if l.is_empty() {
                 continue;
             }
@@ -135,7 +213,42 @@ fn parse_numstat(out: &str) -> Vec<ShaFiles> {
             // null line counts, not skipped.
             let added: i32 = if a == "-" { -1 } else { a.parse().unwrap_or(0) };
             let removed: i32 = if r == "-" { -1 } else { r.parse().unwrap_or(0) };
-            files.push((added, removed, normalize_path(p)));
+            files.push(FileStat {
+                added,
+                removed,
+                added_comment: 0,
+                added_blank: 0,
+                removed_comment: 0,
+                removed_blank: 0,
+                path: normalize_path(p),
+            });
+        }
+
+        let mut sections: Vec<&[&str]> = Vec::new();
+        let mut start = None;
+        for (i, l) in all.iter().enumerate().skip(split) {
+            if l.starts_with("diff --git") {
+                if let Some(s) = start {
+                    sections.push(&all[s..i]);
+                }
+                start = Some(i);
+            }
+        }
+        if let Some(s) = start {
+            sections.push(&all[s..]);
+        }
+
+        if sections.len() == files.len() {
+            for (f, sec) in files.iter_mut().zip(sections) {
+                if f.added < 0 {
+                    continue; // binary: nothing to classify
+                }
+                let (ac, ab, rc, rb) = classify_patch(&f.path, sec);
+                f.added_comment = ac;
+                f.added_blank = ab;
+                f.removed_comment = rc;
+                f.removed_blank = rb;
+            }
         }
         result.push((sha, files));
     }
@@ -185,11 +298,14 @@ fn ingest_range(repo: &Path, range: &str, quiet: bool) -> Result<Vec<(RawCommit,
                     "--stdin",
                     "--no-walk",
                     "--numstat",
+                    // The patch is what makes a comment distinguishable from a line
+                    // of code; numstat alone only ever gives a total.
+                    "-p",
                     "--format=%x1e%H",
                 ],
                 chunk,
             )
-            .map(|o| parse_numstat(&o))
+            .map(|o| parse_diff(&o))
             .unwrap_or_default()
         })
         .collect();
@@ -241,14 +357,18 @@ fn build_repo_data(
 
     for (c, files) in fresh {
         let start = changes.len() as u32;
-        for (added, removed, p) in files {
-            let path_id = interner.intern(&p);
-            let dir_id = interner.intern(dir_of(&p));
+        for f in files {
+            let path_id = interner.intern(&f.path);
+            let dir_id = interner.intern(dir_of(&f.path));
             changes.push(Change {
                 path: path_id,
                 dir: dir_id,
-                added,
-                removed,
+                added: f.added,
+                removed: f.removed,
+                added_comment: f.added_comment,
+                added_blank: f.added_blank,
+                removed_comment: f.removed_comment,
+                removed_blank: f.removed_blank,
             });
         }
         let author = interner.intern(&c.author);
