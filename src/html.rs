@@ -29,9 +29,18 @@ h1{font-size:1.5rem;font-weight:650;letter-spacing:-.02em;margin:0 0 .2rem;text-
 .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.2rem 1.3rem;
   box-shadow:0 1px 2px rgba(0,0,0,.04),0 10px 26px -20px rgba(0,0,0,.25)}
 svg{display:block;width:100%;height:auto;overflow:visible}
-.legend{display:flex;flex-wrap:wrap;gap:.4rem 1rem;margin-top:.9rem;font-size:.8rem;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:.35rem .6rem;margin-top:.9rem;font-size:.8rem;color:var(--muted)}
 .legend span{display:inline-flex;align-items:center;gap:.4rem}
 .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;flex:none}
+/* Legend entries toggle their series, so they have to be real buttons: reachable
+   by keyboard, and announcing whether the series is currently drawn. */
+.legend .lg{font:inherit;font-size:.8rem;color:var(--muted);background:none;border:0;
+  padding:.15rem .35rem;border-radius:5px;cursor:pointer;display:inline-flex;
+  align-items:center;gap:.4rem;line-height:1.4}
+.legend .lg:hover{background:var(--surface2);color:var(--text)}
+.legend .lg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.legend .lg.off{opacity:.4;text-decoration:line-through}
+.legend .lg.off:hover{opacity:.7}
 .tbl-scroll{overflow-x:auto}
 .sechead th{font-size:.65rem;text-transform:uppercase;letter-spacing:.11em;color:var(--faint);
   font-weight:600;background:var(--bg);border-top:2px solid var(--faint);
@@ -150,14 +159,26 @@ function showTip(html,x,y){const t=tip();t.innerHTML=html;t.classList.add('on');
 function hideTip(){ if(TIP)TIP.classList.remove('on'); }
 
 function renderSeries(el,d){
-  const ov=d.overlay&&d.overlay.points&&d.overlay.points.some(v=>v>0)?d.overlay:null;
+  const ovAll=d.overlay&&d.overlay.points&&d.overlay.points.some(v=>v>0)?d.overlay:null;
+  const n=d.x.length;
+  // Colour is fixed over every series that has data, before anything is hidden, so
+  // toggling one off never recolours the rest.
+  const ALL=d.series.filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:i}));
+  if(!n||!(ALL.length||ovAll)){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
+  // Hidden set lives on the data object: it survives a theme re-render, and a new
+  // query brings a new object, so the chart never opens with something missing.
+  const hidden=d.__hidden||(d.__hidden=new Set());
+  const OV='overlay';
+  const VIS=ALL.filter(o=>!hidden.has('s:'+o.s.name));
+  const ov=(ovAll&&!hidden.has(OV))?ovAll:null;
+
   const W=1000,H=340,mL=58,mR=ov?62:16,mT=ov?32:14,mB=30;
-  const n=d.x.length, S=d.series.filter(s=>s.points.some(v=>v>0)) ;
-  if(!n||!S.length){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
   const iw=W-mL-mR, ih=H-mT-mB;
   let max=0;
-  if(d.stacked){for(let i=0;i<n;i++){let s=0;for(const q of S)s+=q.points[i]||0;max=Math.max(max,s);}}
-  else{for(const q of S)for(const v of q.points)max=Math.max(max,v||0);}
+  // Scale follows what is actually drawn, so hiding the series that dwarfs the rest
+  // opens the others up instead of leaving them flat along the axis.
+  if(d.stacked){for(let i=0;i<n;i++){let s=0;for(const o of VIS)s+=o.s.points[i]||0;max=Math.max(max,s);}}
+  else{for(const o of VIS)for(const v of o.s.points)max=Math.max(max,v||0);}
   if(max<=0)max=1;
   const X=i=> n===1?mL+iw/2 : mL+(i/(n-1))*iw;
   const Y=v=> mT+ih-(v/max)*ih;
@@ -174,7 +195,9 @@ function renderSeries(el,d){
   const yStep=niceStep(max/5);
   max=Math.ceil(max/yStep)*yStep;
   const TICKS=Math.round(max/yStep);
-  for(let t=0;t<=TICKS;t++){
+  // With every series hidden the left scale describes nothing, so it goes away
+  // rather than printing a 0-to-1 axis nobody asked about.
+  if(VIS.length)for(let t=0;t<=TICKS;t++){
     const v=yStep*t, y=Y(v);
     g+=`<line x1="${mL}" y1="${y}" x2="${W-mR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
     g+=`<text x="${mL-8}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--faint)" class="mono">${fmt(v)}</text>`;
@@ -188,7 +211,7 @@ function renderSeries(el,d){
     // Sit the titles clear of the topmost tick label rather than on it, and keep
     // the right-hand one inside the viewBox.
     g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||ov.name)} →</text>`;
-    g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
+    if(VIS.length)g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
   }
   const step=Math.max(1,Math.ceil(n/7));
   for(let i=0;i<n;i+=step){
@@ -198,20 +221,20 @@ function renderSeries(el,d){
   let marks='';
   if(d.stacked){
     const base=new Array(n).fill(0);
-    S.forEach((s,si)=>{
+    VIS.forEach(o=>{
       let top='',bot='';
-      for(let i=0;i<n;i++){const v=base[i]+(s.points[i]||0);top+=`${X(i)},${Y(v)} `;}
+      for(let i=0;i<n;i++){const v=base[i]+(o.s.points[i]||0);top+=`${X(i)},${Y(v)} `;}
       for(let i=n-1;i>=0;i--){bot+=`${X(i)},${Y(base[i])} `;}
       // 2px surface gap between bands keeps adjacent fills readable.
-      marks+=`<polygon points="${top}${bot}" fill="${color(si)}" fill-opacity="0.85"
+      marks+=`<polygon points="${top}${bot}" fill="${color(o.ci)}" fill-opacity="0.85"
               stroke="var(--surface)" stroke-width="1.5"/>`;
-      for(let i=0;i<n;i++)base[i]+=(s.points[i]||0);
+      for(let i=0;i<n;i++)base[i]+=(o.s.points[i]||0);
     });
   }else{
-    S.forEach((s,si)=>{
+    VIS.forEach(o=>{
       let pts='';
-      for(let i=0;i<n;i++)pts+=`${X(i)},${Y(s.points[i]||0)} `;
-      marks+=`<polyline points="${pts}" fill="none" stroke="${color(si)}" stroke-width="2"
+      for(let i=0;i<n;i++)pts+=`${X(i)},${Y(o.s.points[i]||0)} `;
+      marks+=`<polyline points="${pts}" fill="none" stroke="${color(o.ci)}" stroke-width="2"
               stroke-linejoin="round" stroke-linecap="round"/>`;
     });
   }
@@ -224,25 +247,49 @@ function renderSeries(el,d){
     marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="2"
             stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>`;
   }
+  if(!VIS.length&&!ov){
+    marks+=`<text x="${mL+iw/2}" y="${mT+ih/2}" text-anchor="middle" font-size="13"
+            fill="var(--faint)">Nothing selected — pick a series below</text>`;
+  }
+
+  // Every series with data keeps a legend entry whether or not it is drawn. A
+  // hidden series that vanished from the legend would be unreachable.
+  const chip=(key,swatch,label,extra)=>{
+    const off=hidden.has(key);
+    return `<button type="button" class="lg${off?' off':''}" data-k="${esc(key)}"
+      aria-pressed="${off?'false':'true'}"><i style="background:${swatch}"></i>${esc(label)}${extra||''}</button>`;
+  };
+  const legend=ALL.map(o=>chip('s:'+o.s.name,color(o.ci),o.s.name)).join('')
+    +(ovAll?chip(OV,'var(--text)',ovAll.name,
+        ' <em style="font-style:normal;opacity:.7">(right axis)</em>'):'');
+
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(d.title)}">${g}${marks}
       <line id="cross" x1="0" y1="${mT}" x2="0" y2="${mT+ih}" stroke="var(--faint)"
         stroke-width="1" stroke-dasharray="3 3" opacity="0"/></svg>
-    <div class="legend">${S.map((s,i)=>
-      `<span><i style="background:${color(i)}"></i>${esc(s.name)}</span>`).join('')
-      +(ov?`<span><i style="background:var(--text);opacity:.75"></i>${esc(ov.name)} <em style="font-style:normal;opacity:.7">(right axis)</em></span>`:'')}</div>`;
+    <div class="legend">${legend}</div>`;
+
+  el.querySelectorAll('.lg').forEach(b=>b.addEventListener('click',()=>{
+    const k=b.dataset.k;
+    if(hidden.has(k))hidden.delete(k); else hidden.add(k);
+    renderSeries(el,d);
+    // Keep the keyboard where it was; the node itself was just replaced.
+    const again=el.querySelector(`.lg[data-k="${CSS.escape(k)}"]`);
+    if(again)again.focus({preventScroll:true});
+  }));
 
   const svg=el.querySelector('svg'), cross=svg.querySelector('#cross');
   svg.addEventListener('mousemove',e=>{
+    if(!VIS.length&&!ov)return;
     const r=svg.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width*W;
     let i=Math.round(((px-mL)/iw)*(n-1));
     i=Math.max(0,Math.min(n-1,i));
     cross.setAttribute('x1',X(i));cross.setAttribute('x2',X(i));cross.setAttribute('opacity','1');
-    let tot=0; const lines=S.map((s,si)=>{const v=s.points[i]||0;tot+=v;
-      return `<div><span style="color:${color(si)}">■</span> ${esc(s.name)} ${fmt(v)}</div>`;}).join('');
+    let tot=0; const lines=VIS.map(o=>{const v=o.s.points[i]||0;tot+=v;
+      return `<div><span style="color:${color(o.ci)}">■</span> ${esc(o.s.name)} ${fmt(v)}</div>`;}).join('');
     const otip=ov?`<div>▦ ${esc(ov.name)} ${fmt(ov.points[i]||0)}</div>`:'';
-    showTip(`<b>${esc(d.x[i])}</b>${lines}${S.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${otip}`,e.clientX,e.clientY);
+    showTip(`<b>${esc(d.x[i])}</b>${lines}${VIS.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${otip}`,e.clientX,e.clientY);
   });
   svg.addEventListener('mouseleave',()=>{cross.setAttribute('opacity','0');hideTip();});
 }
