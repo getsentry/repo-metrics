@@ -1,0 +1,30 @@
+name: Update Homebrew tap
+
+# Releases here are drafts by default, reviewed and then published by hand.
+# Publishing a draft is a person's action, so it does fire this event, and this
+# is what keeps ryan953/tap/repo-metrics in step with the latest release.
+#
+# A release published straight from the release workflow (draft: false) is
+# bumped by that workflow's own `tap` job instead, because a release created
+# with github.token fires no events. Running both would be harmless anyway: the
+# bump writes nothing when the formula already names that version.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to sync, e.g. v0.2.0
+        required: true
+        type: string
+
+jobs:
+  tap:
+    name: bump homebrew tap
+    uses: ryan953/homebrew-tap/.github/workflows/bump.yml@main
+    with:
+      kind: formula
+      name: repo-metrics
+      version: ${{ inputs.tag || github.event.release.tag_name }}
+    secrets:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}

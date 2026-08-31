@@ -133,3 +133,25 @@ jobs:
           if [ "${{ inputs.draft }}" = "true" ]; then args+=(--draft); fi
           if [ "${{ inputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
           gh release create "${{ inputs.tag }}" "${args[@]}" dist/*
+
+  # A non-draft release is published here and now, so bump the tap here and now.
+  # `release: published` cannot cover this case: the release above is created
+  # with github.token, and GitHub does not fire workflow-triggering events for
+  # anything a GITHUB_TOKEN did. A draft is covered by tap.yml instead, which
+  # does fire, because a person publishes it. The two paths are exclusive, and
+  # the bump is idempotent either way.
+  #
+  # Needs a TAP_TOKEN secret with Contents Read+Write on ryan953/homebrew-tap.
+  # Without it this job fails and says so; the release still stands, and
+  # `scripts/bump-formula.sh repo-metrics <version>` in the tap fixes it.
+  tap:
+    name: bump homebrew tap
+    needs: release
+    if: ${{ inputs.draft == false }}
+    uses: ryan953/homebrew-tap/.github/workflows/bump.yml@main
+    with:
+      kind: formula
+      name: repo-metrics
+      version: ${{ inputs.tag }}
+    secrets:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
