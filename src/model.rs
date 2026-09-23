@@ -22,7 +22,9 @@ use std::path::PathBuf;
 /// wronger rule, and nothing in the file says so.
 /// 6: store each commit's subject line, so the value view can read the author's own
 /// label (`feat:`, `fix:`) as a cross-check on what the diff shape says.
-pub const PARSER_VERSION: u32 = 6;
+/// 7: leave out the commits a repo lists in `.git-blame-ignore-revs`, and record
+/// which ones, so a change to that list forces a full re-read.
+pub const PARSER_VERSION: u32 = 7;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Cache {
@@ -38,6 +40,11 @@ pub struct RepoData {
     /// Browsable base URL for the origin remote, so views can link a commit out to
     /// the forge. None when the remote is missing or an unfamiliar shape.
     pub web: Option<String>,
+    /// Commits the repo's `.git-blame-ignore-revs` listed at `head`, left out of
+    /// `commits`. Kept so an incremental ingest can tell when the list has grown:
+    /// commits already in the cache are never revisited, so a newly listed one
+    /// would otherwise stay.
+    pub ignored: Vec<String>,
     /// Interned strings: paths, directories, author names and emails all repeat
     /// heavily across a history, so ids keep the cache small and comparisons cheap.
     pub strings: Vec<String>,

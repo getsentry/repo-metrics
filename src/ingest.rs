@@ -343,6 +343,7 @@ fn build_repo_data(
     path: String,
     head: String,
     web: Option<String>,
+    ignored: Vec<String>,
     mut existing: Option<RepoData>,
     fresh: Vec<(RawCommit, Vec<FileStat>)>,
 ) -> RepoData {
@@ -401,6 +402,7 @@ fn build_repo_data(
         path,
         head,
         web,
+        ignored,
         strings: interner.list,
         commits,
         changes,
@@ -413,6 +415,7 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
     // The default branch, never the checkout. See git::default_ref.
     let branch = git::default_ref(repo_path);
     let head = git::sha_of(repo_path, &branch)?;
+    let ignored = git::blame_ignore_revs(repo_path, &head);
 
     let idx = cache.repos.iter().position(|r| r.path == path);
     let prev_head = idx.and_then(|i| {
@@ -421,8 +424,10 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
         // Mere existence is not enough: a commit left behind by a rebase, a
         // force-push or an ingest taken from another ref still resolves, and
         // appending `{that}..{head}` to the cache never removes what it left there.
-        // Anything but a clean ancestor is re-read from scratch.
-        if git::is_ancestor(repo_path, &r.head, &head) {
+        // Anything but a clean ancestor is re-read from scratch. So is a cache
+        // built against a different ignore list, since the commits it should now
+        // skip, or keep, are already behind the checkpoint.
+        if r.ignored == ignored && git::is_ancestor(repo_path, &r.head, &head) {
             Some(r.head.clone())
         } else {
             None
@@ -452,6 +457,18 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
     }
 
     let fresh = ingest_range(repo_path, &range, quiet)?;
+    let before = fresh.len();
+    // Entries may be abbreviated, so match on prefix.
+    let fresh: Vec<_> = fresh
+        .into_iter()
+        .filter(|(c, _)| !ignored.iter().any(|x| c.sha.starts_with(x.as_str())))
+        .collect();
+    if !quiet && before > fresh.len() {
+        eprintln!(
+            "  skipped {} commits listed in .git-blame-ignore-revs",
+            before - fresh.len()
+        );
+    }
     let existing = if incremental {
         idx.map(|i| cache.repos.remove(i))
     } else {
@@ -462,7 +479,7 @@ pub fn ingest(cache: &mut Cache, repo_path: &Path, force: bool, quiet: bool) -> 
     };
 
     let web = git::web_url(repo_path);
-    let rd = build_repo_data(name, path, head, web, existing, fresh);
+    let rd = build_repo_data(name, path, head, web, ignored, existing, fresh);
     if !quiet {
         eprintln!(
             "  total: {} commits, {} file changes",

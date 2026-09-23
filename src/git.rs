@@ -22,6 +22,34 @@ pub fn git(repo: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// The commits a repo asks `git blame` to skip: mass reformats, renames and other
+/// sweeps whose churn says nothing about the work. Read from the file as it stands
+/// at `sha`, and empty when there is none.
+pub fn blame_ignore_revs(repo: &Path, sha: &str) -> Vec<String> {
+    git(repo, &["show", &format!("{sha}:.git-blame-ignore-revs")])
+        .map(|t| parse_ignore_revs(&t))
+        .unwrap_or_default()
+}
+
+/// One revision per line, `#` to end of line is a comment. Anything that isn't a
+/// hex object name is skipped rather than guessed at.
+pub fn parse_ignore_revs(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = text
+        .lines()
+        .map(|l| {
+            l.split('#')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        })
+        .filter(|l| l.len() >= 7 && l.chars().all(|c| c.is_ascii_hexdigit()))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Run `git log` feeding revisions on stdin. This is how we shard: `rev-list` gives
 /// us every sha, we chunk it, and each worker asks for exactly its chunk. Slicing by
 /// date instead would silently drop commits whose author date sits outside the range.
@@ -301,4 +329,27 @@ pub fn line_counts(repo: &Path, sha: &str) -> Result<HashMap<String, (u64, u64, 
 
 pub fn canonical(path: &str) -> Result<PathBuf> {
     std::fs::canonicalize(path).with_context(|| format!("no such path: {path}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ignore_revs_skip_comments_and_junk() {
+        let text = "# mass reformat (#123)\n\
+                    95767D455B8004EC4B4C5026D84B64B6348E6D37\n\
+                    \n\
+                    658504a9b2cab9b2c2578cd2e0f474817819a7f9  # trailing note\n\
+                    not-a-sha\n\
+                    abc\n\
+                    95767d455b8004ec4b4c5026d84b64b6348e6d37\n";
+        assert_eq!(
+            parse_ignore_revs(text),
+            vec![
+                "658504a9b2cab9b2c2578cd2e0f474817819a7f9",
+                "95767d455b8004ec4b4c5026d84b64b6348e6d37",
+            ]
+        );
+    }
 }
