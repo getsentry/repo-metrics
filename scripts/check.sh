@@ -182,6 +182,7 @@ assert any(p>0 for p in ref), "expected maintenance is all zero"
 dbl=run("value","--by","month","--year1","2","--after","0.2")["reference"][0]["points"]
 assert all(abs(d-2*r)<0.01 for d,r in zip(dbl,ref)), "maintenance model is not linear in its rates"
 assert v.get("note"), "no summary note"
+assert (v.get("cite") or {}).get("url","").startswith("https://www.jamesshore.com/"), "method source link missing"
 PYEOF
 
 # The web app keeps its state in the URL so views can be bookmarked. Only checked

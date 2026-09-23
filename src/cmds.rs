@@ -105,6 +105,7 @@ pub fn timeseries(
         overlay_rate: false,
         reference: Vec::new(),
         note: None,
+        cite: None,
     }
 }
 
@@ -340,6 +341,7 @@ pub fn folders(
         overlay_rate: false,
         reference: Vec::new(),
         note: None,
+        cite: None,
     }
 }
 
@@ -900,6 +902,7 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         overlay_rate: false,
         reference: Vec::new(),
         note: None,
+        cite: None,
     }
 }
 

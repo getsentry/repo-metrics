@@ -193,7 +193,7 @@ The dashed line is Shore's maintenance model. Each net-new line is expected to c
 code written before `--since` is still being maintained inside the window; compare
 it against the top of the reworked and deleted bands.
 
-Lockfiles, translation catalogues, snapshots, migrations and generated or minified
+Lockfiles, translation catalogues, test snapshots (`.snap`, `.pysnap`), migrations and generated or minified
 files are left out of every number in this view.
 
 ### Which lines count

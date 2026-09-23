@@ -122,6 +122,12 @@ pub struct RepoLink {
     pub url: Option<String>,
 }
 
+#[derive(Serialize, Clone)]
+pub struct Cite {
+    pub label: String,
+    pub url: String,
+}
+
 /// A date boundary of the active filter, resolved to the commit it actually lands
 /// on so the header can link out to it.
 #[derive(Serialize, Clone)]
@@ -187,6 +193,9 @@ pub enum Output {
         /// A sentence of whole-range summary that the chart itself cannot show.
         #[serde(skip_serializing_if = "Option::is_none")]
         note: Option<String>,
+        /// Where the method comes from, for a reader who wants the reasoning behind it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cite: Option<Cite>,
     },
     Table {
         title: String,
@@ -384,6 +393,7 @@ pub fn render_term(o: &Output) -> String {
             overlay_rate,
             reference,
             note,
+            cite,
             ..
         } => {
             let namew = series
@@ -449,6 +459,9 @@ pub fn render_term(o: &Output) -> String {
             }
             if let Some(n) = note {
                 out.push_str(&format!("\n  {n}\n"));
+            }
+            if let Some(c) = cite {
+                out.push_str(&st.dim(&format!("  {}: {}\n", c.label, c.url)));
             }
             if let (Some(first), Some(last)) = (x.first(), x.last()) {
                 out.push_str(&format!(

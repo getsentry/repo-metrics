@@ -62,9 +62,11 @@ pub fn is_excluded(path: &str) -> bool {
             name,
             "package-lock.json" | "npm-shrinkwrap.json" | "pnpm-lock.yaml" | "go.sum"
         )
-        || [".po", ".pot", ".mo", ".snap", ".min.js", ".min.css", ".map"]
-            .iter()
-            .any(|ext| name.ends_with(ext))
+        || [
+            ".po", ".pot", ".mo", ".snap", ".pysnap", ".min.js", ".min.css", ".map",
+        ]
+        .iter()
+        .any(|ext| name.ends_with(ext))
         || name.contains(".generated.")
         || name.ends_with("_pb2.py")
         || name.ends_with(".pb.go")
@@ -317,6 +319,11 @@ pub fn value(
             points: expected,
         }],
         note: Some(note),
+        cite: Some(Cite {
+            label: "Method: James Shore, Measuring AI's Unintended Consequences".into(),
+            url: "https://www.jamesshore.com/v2/blog/2026/measuring-ais-unintended-consequences"
+                .into(),
+        }),
     }
 }
 
@@ -353,6 +360,7 @@ mod tests {
             "src/sentry/locale/de/LC_MESSAGES/django.po",
             "src/sentry/migrations/0001_initial.py",
             "static/app/__snapshots__/foo.tsx.snap",
+            "tests/sentry/grouping/snapshots/test_variants/python.pysnap",
             "static/dist/app.min.js",
             "api/generated/client.ts",
         ] {

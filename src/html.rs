@@ -86,6 +86,9 @@ path.dr{cursor:pointer}
 .caveat ul{margin:.45rem 0 0;padding-left:1.1rem}
 .caveat li{margin:.35rem 0}
 .caveat b{color:var(--muted);font-weight:600}
+.caveat a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--border)}
+.caveat a:hover{border-bottom-color:var(--accent)}
+.caveat a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
 "##;
 
 /// The standing caveats, shown under every chart.
@@ -168,7 +171,8 @@ function renderSeries(el,d){
   // like the overlay and are told apart by their dash.
   const REFALL=(d.reference||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:ALL.length+i}));
   const EXALL=(d.overlay_extra||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,dash:['2 4','10 3 2 3'][i%2]}));
-  const noteHtml=d.note?`<p class="caveat" style="border-left-color:var(--accent);color:var(--muted)">${esc(d.note)}</p>`:'';
+  const cite=d.cite?` <a href="${esc(d.cite.url)}" target="_blank" rel="noopener">${esc(d.cite.label)}</a>`:'';
+  const noteHtml=(d.note||cite)?`<p class="caveat" style="border-left-color:var(--accent);color:var(--muted)">${esc(d.note||'')}${cite}</p>`:'';
   if(!n||!(ALL.length||ovAll)){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
   // Hidden set lives on the data object: it survives a theme re-render, and a new
   // query brings a new object, so the chart never opens with something missing.
