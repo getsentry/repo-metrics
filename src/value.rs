@@ -91,16 +91,8 @@ impl Shape {
         self.new + self.rework + self.deleted
     }
 
-    /// Value-add when most of the churn is growth. The comparison is strict so that
-    /// moving code between files, which is exactly as much deletion as growth, reads
-    /// as the rework it is. A commit that changed no countable lines — a lockfile
-    /// bump, a binary swap — is muda.
-    pub fn intent(&self) -> Intent {
-        if 2 * self.new > self.churn() {
-            Intent::ValueAdd
-        } else {
-            Intent::Muda
-        }
+    fn muda(&self) -> i64 {
+        self.rework + self.deleted
     }
 
     fn add(&mut self, o: Shape) {
@@ -138,13 +130,16 @@ fn upkeep(age_days: f64, year1: f64, after: f64) -> f64 {
 #[derive(Default)]
 struct Tally {
     commits: f64,
-    value_add: f64,
     labelled: f64,
-    labelled_value_add: f64,
-    /// Labelled commits the diff shape also calls value-add, split by their label.
-    /// Where the two disagree says more than how often they agree.
-    feat_grew: f64,
-    other_grew: f64,
+    value_add: f64,
+}
+
+impl Tally {
+    /// Value-add is only measurable where most commits say what they are. Below
+    /// that, the labelled few are not a sample of the rest.
+    fn measurable(&self) -> bool {
+        self.labelled > 0.0 && self.labelled * 2.0 >= self.commits
+    }
 }
 
 pub fn value(
@@ -185,24 +180,14 @@ pub fn value(
             }
             keys.push(k);
             shown.entry(k).or_default().add(shape);
-            let by_shape = shape.intent();
-            let by_label = intent_of_subject(r.s(c.subject));
+            let label = intent_of_subject(r.s(c.subject));
             for t in [tally.entry(k).or_default(), &mut whole] {
                 t.commits += 1.0;
-                if by_shape == Intent::ValueAdd {
-                    t.value_add += 1.0;
-                }
-                if let Some(label) = by_label {
+                if label.is_some() {
                     t.labelled += 1.0;
-                    if label == Intent::ValueAdd {
-                        t.labelled_value_add += 1.0;
-                    }
-                    if by_shape == Intent::ValueAdd {
-                        match label {
-                            Intent::ValueAdd => t.feat_grew += 1.0,
-                            Intent::Muda => t.other_grew += 1.0,
-                        }
-                    }
+                }
+                if label == Some(Intent::ValueAdd) {
+                    t.value_add += 1.0;
                 }
             }
         }
@@ -212,14 +197,6 @@ pub fn value(
     let band = |pick: fn(&Shape) -> i64| -> Vec<f64> {
         ax.iter()
             .map(|(k, _)| shown.get(k).map(|s| pick(s) as f64).unwrap_or(0.0))
-            .collect()
-    };
-    let pct = |num: fn(&Tally) -> f64, den: fn(&Tally) -> f64| -> Vec<f64> {
-        ax.iter()
-            .map(|(k, _)| match tally.get(k) {
-                Some(t) if den(t) > 0.0 => 100.0 * num(t) / den(t),
-                _ => 0.0,
-            })
             .collect()
     };
 
@@ -237,47 +214,53 @@ pub fn value(
         })
         .collect();
 
-    // A prefix line drawn from a handful of labelled commits would look like a
-    // measurement of the whole repo, so it only appears when most commits carry one.
-    let labelled_enough = whole.labelled * 2.0 >= whole.commits && whole.labelled > 0.0;
-    let overlay_extra = if labelled_enough {
-        vec![Series {
-            name: "value-add % (feat: prefix)".into(),
-            points: pct(|t| t.labelled_value_add, |t| t.labelled),
-        }]
-    } else {
-        Vec::new()
-    };
+    // Value-add is read from the author's own label: whether a change adds capability
+    // is a question of intent, which the shape of a diff can't answer. A month where
+    // most commits are unlabelled is a gap in the line, not a zero.
+    let overlay = whole.measurable().then(|| Series {
+        name: "value-add % (feat: commits)".into(),
+        points: ax
+            .iter()
+            .map(|(k, _)| match tally.get(k) {
+                Some(t) if t.measurable() => 100.0 * t.value_add / t.labelled,
+                _ => f64::NAN,
+            })
+            .collect(),
+    });
 
     let window = shown.values().fold(Shape::default(), |mut acc, s| {
         acc.add(*s);
         acc
     });
     let share = |n: f64, d: f64| if d > 0.0 { 100.0 * n / d } else { 0.0 };
-    let mut note = format!(
-        "{:.0}% of {} commits are value-add by diff shape",
-        share(whole.value_add, whole.commits),
-        group(whole.commits as i64),
-    );
-    if labelled_enough {
-        note.push_str(&format!(
-            ", {:.0}% by feat: prefix. Diff shape reads {:.0}% of feat: commits as \
-             value-add, and {:.0}% of the other labelled commits",
-            share(whole.labelled_value_add, whole.labelled),
-            share(whole.feat_grew, whole.labelled_value_add),
-            share(whole.other_grew, whole.labelled - whole.labelled_value_add),
-        ));
-    } else {
-        note.push_str(&format!(
-            "; too few commits carry a conventional prefix to cross-check ({:.0}%)",
+    let mut note = if whole.measurable() {
+        format!(
+            "{:.0}% of the {} commits with a conventional-commit prefix are feat: \
+             (value-add); {:.0}% of all commits carry one.",
+            share(whole.value_add, whole.labelled),
+            group(whole.labelled as i64),
             share(whole.labelled, whole.commits),
+        )
+    } else {
+        format!(
+            "Only {:.0}% of {} commits carry a conventional-commit prefix, too few to \
+             measure value-add.",
+            share(whole.labelled, whole.commits),
+            group(whole.commits as i64),
+        )
+    };
+    let expected_total: f64 = expected.iter().sum();
+    if expected_total > 0.0 {
+        note.push_str(&format!(
+            " Rework and deletion came to {:.2}× the expected maintenance.",
+            window.muda() as f64 / expected_total,
         ));
     }
     note.push_str(&format!(
-        ". Net-new lines are {:.0}% of churn. Expected maintenance assumes each new line \
+        " Net-new lines are {:.0}% of churn. Expected maintenance assumes each new line \
          costs {year1:?} lines of rework or deletion in its first year and {after:?} a \
-         year after that. Lockfiles, migrations, snapshots and generated files are left \
-         out.",
+         year after that. Lockfiles, migrations, test snapshots and generated files are \
+         left out.",
         share(window.new as f64, window.churn() as f64),
     ));
 
@@ -307,12 +290,8 @@ pub fn value(
         stacked: true,
         y_label: unit.into(),
         rate: false,
-        overlay: Some(Series {
-            name: "value-add % (diff shape)".into(),
-            points: pct(|t| t.value_add, |t| t.commits),
-        }),
-        overlay_label: Some("% of commits".into()),
-        overlay_extra,
+        overlay,
+        overlay_label: Some("% of labelled commits".into()),
         overlay_rate: true,
         reference: vec![Series {
             name: "expected maintenance".into(),
@@ -377,17 +356,14 @@ mod tests {
     }
 
     #[test]
-    fn shape_intent() {
-        let s = |new, rework, deleted| Shape {
-            new,
-            rework,
-            deleted,
+    fn measurable_needs_most_commits_labelled() {
+        let t = |commits, labelled| Tally {
+            commits,
+            labelled,
+            value_add: 0.0,
         };
-        assert_eq!(s(100, 0, 0).intent(), Intent::ValueAdd);
-        assert_eq!(s(100, 40, 20).intent(), Intent::ValueAdd);
-        // A move between files: as much deleted as grown.
-        assert_eq!(s(100, 0, 100).intent(), Intent::Muda);
-        assert_eq!(s(10, 200, 0).intent(), Intent::Muda);
-        assert_eq!(s(0, 0, 0).intent(), Intent::Muda);
+        assert!(t(10.0, 5.0).measurable());
+        assert!(!t(10.0, 4.0).measurable());
+        assert!(!t(0.0, 0.0).measurable());
     }
 }

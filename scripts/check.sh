@@ -174,9 +174,18 @@ churn=ts["series"][0]["points"]
 for i in range(len(v["x"])):
     bands=sum(s["points"][i] for s in v["series"])
     assert bands<=churn[i]+0.5, f"bucket {i}: bands {bands} > churn {churn[i]}"
-for s in [v["overlay"],*v.get("overlay_extra",[])]:
-    assert len(s["points"])==len(v["x"]), s["name"]+" length differs from x"
-    assert all(0<=p<=100 for p in s["points"]), s["name"]+" out of 0..100"
+# A month without enough labelled commits is a gap (null), never a zero.
+ov=v["overlay"]
+assert len(ov["points"])==len(v["x"]), "value-add % length differs from x"
+assert any(p is not None for p in ov["points"]), "value-add % has no measured months"
+assert all(p is None or 0<=p<=100 for p in ov["points"]), "value-add % out of 0..100"
+assert "× the expected maintenance" in v["note"], "note lost the actual/expected ratio"
+# sentry predates conventional commits: a year from then must be gaps, not 0%, and
+# a range that is all gaps draws no line at all.
+old=json.loads(subprocess.run([B,"value","--repo","sentry","--since","2015-01-01","--until","2015-12-31",
+    "--by","month","--format","json"],capture_output=True,text=True).stdout)
+assert "overlay" not in old, "unlabelled history drew a value-add line"
+assert "too few" in old["note"], old["note"]
 ref=v["reference"][0]["points"]
 assert any(p>0 for p in ref), "expected maintenance is all zero"
 dbl=run("value","--by","month","--year1","2","--after","0.2")["reference"][0]["points"]

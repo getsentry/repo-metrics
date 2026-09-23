@@ -180,9 +180,6 @@ pub enum Output {
         overlay: Option<Series>,
         #[serde(skip_serializing_if = "Option::is_none")]
         overlay_label: Option<String>,
-        /// More lines on the overlay's axis, for a measure worth reading two ways.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        overlay_extra: Vec<Series>,
         /// The overlay is a rate, so its summary is an average rather than a peak.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         overlay_rate: bool,
@@ -294,6 +291,10 @@ pub fn sparkline(v: &[f64]) -> String {
     }
     v.iter()
         .map(|x| {
+            // NaN marks a bucket with no measurement, which is not the same as zero.
+            if x.is_nan() {
+                return ' ';
+            }
             let i = ((x / max) * (SPARK.len() - 1) as f64).round() as usize;
             SPARK[i.min(SPARK.len() - 1)]
         })
@@ -389,7 +390,6 @@ pub fn render_term(o: &Output) -> String {
             rate,
             overlay,
             overlay_label,
-            overlay_extra,
             overlay_rate,
             reference,
             note,
@@ -399,7 +399,6 @@ pub fn render_term(o: &Output) -> String {
             let namew = series
                 .iter()
                 .chain(overlay.iter())
-                .chain(overlay_extra.iter())
                 .chain(reference.iter())
                 .map(|s| width(&s.name))
                 .max()
@@ -437,7 +436,7 @@ pub fn render_term(o: &Output) -> String {
                     ))
                 ));
             }
-            for ov in overlay.iter().chain(overlay_extra.iter()) {
+            if let Some(ov) = overlay {
                 // Its own scale, so the total is a peak rather than a sum.
                 let summary = if *overlay_rate {
                     let live: Vec<f64> = ov.points.iter().cloned().filter(|v| *v > 0.0).collect();

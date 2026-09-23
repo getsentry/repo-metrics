@@ -167,10 +167,8 @@ function renderSeries(el,d){
   // Colour is fixed over every series that has data, before anything is hidden, so
   // toggling one off never recolours the rest.
   const ALL=d.series.filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:i}));
-  // Reference lines take the colours after the bands; extra overlay lines stay ink
-  // like the overlay and are told apart by their dash.
+  // Reference lines take the colours after the bands.
   const REFALL=(d.reference||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:ALL.length+i}));
-  const EXALL=(d.overlay_extra||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,dash:['2 4','10 3 2 3'][i%2]}));
   const cite=d.cite?` <a href="${esc(d.cite.url)}" target="_blank" rel="noopener">${esc(d.cite.label)}</a>`:'';
   const noteHtml=(d.note||cite)?`<p class="caveat" style="border-left-color:var(--accent);color:var(--muted)">${esc(d.note||'')}${cite}</p>`:'';
   if(!n||!(ALL.length||ovAll)){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
@@ -181,8 +179,7 @@ function renderSeries(el,d){
   const VIS=ALL.filter(o=>!hidden.has('s:'+o.s.name));
   const ov=(ovAll&&!hidden.has(OV))?ovAll:null;
   const REF=REFALL.filter(o=>!hidden.has('r:'+o.s.name));
-  const EX=EXALL.filter(o=>!hidden.has('x:'+o.s.name));
-  const right=ov||EX.length;
+  const right=!!ov;
 
   const W=1000,H=340,mL=58,mR=right?62:16,mT=right?32:14,mB=30;
   const iw=W-mL-mR, ih=H-mT-mB;
@@ -198,7 +195,6 @@ function renderSeries(el,d){
   // A second, independent scale. Where the overlay crosses the bands below is a
   // consequence of these two ranges and means nothing on its own.
   let omax=0; if(ov)for(const v of ov.points)omax=Math.max(omax,v||0);
-  for(const o of EX)for(const v of o.s.points)omax=Math.max(omax,v||0);
   const oStep=right?niceStep(omax/4):1;
   if(right)omax=Math.max(Math.ceil(omax/oStep)*oStep,oStep);
   const Y2=v=> mT+ih-(v/omax)*ih;
@@ -225,7 +221,7 @@ function renderSeries(el,d){
     }
     // Sit the titles clear of the topmost tick label rather than on it, and keep
     // the right-hand one inside the viewBox.
-    g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||(ov||EX[0].s).name)} →</text>`;
+    g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||ov.name)} →</text>`;
     if(left)g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
   }
   const step=Math.max(1,Math.ceil(n/7));
@@ -261,18 +257,18 @@ function renderSeries(el,d){
     marks+=`<polyline points="${pts}" fill="none" stroke="${color(o.ci)}" stroke-width="2.5"
             stroke-dasharray="8 4" stroke-linejoin="round" stroke-linecap="round"/>`;
   });
-  EX.forEach(o=>{
-    let pts='';
-    for(let i=0;i<n;i++)pts+=`${X(i)},${Y2(o.s.points[i]||0)} `;
-    marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="1.5"
-            stroke-dasharray="${o.dash}" stroke-linejoin="round" stroke-linecap="round" opacity="0.6"/>`;
-  });
   if(ov){
-    let pts='';
-    for(let i=0;i<n;i++)pts+=`${X(i)},${Y2(ov.points[i]||0)} `;
+    // A null point is a bucket with no measurement: the line breaks there instead
+    // of dropping to zero.
+    let path='', pen=false;
+    for(let i=0;i<n;i++){
+      const v=ov.points[i];
+      if(v===null||v===undefined){pen=false;continue;}
+      path+=`${pen?'L':'M'}${X(i)},${Y2(v)} `; pen=true;
+    }
     // Ink rather than a palette hue, and dashed: it reads as a reference line on
     // its own axis instead of another band in the stack.
-    marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="2"
+    marks+=`<path d="${path}" fill="none" stroke="var(--text)" stroke-width="2"
             stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>`;
   }
   if(!left&&!right){
@@ -290,8 +286,7 @@ function renderSeries(el,d){
   const rightTag=' <em style="font-style:normal;opacity:.7">(right axis)</em>';
   const legend=ALL.map(o=>chip('s:'+o.s.name,color(o.ci),o.s.name)).join('')
     +REFALL.map(o=>chip('r:'+o.s.name,color(o.ci),o.s.name,' <em style="font-style:normal;opacity:.7">(dashed)</em>')).join('')
-    +(ovAll?chip(OV,'var(--text)',ovAll.name,rightTag):'')
-    +EXALL.map(o=>chip('x:'+o.s.name,'var(--faint)',o.s.name,rightTag)).join('');
+    +(ovAll?chip(OV,'var(--text)',ovAll.name,rightTag):'');
 
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(d.title)}">${g}${marks}
@@ -319,8 +314,7 @@ function renderSeries(el,d){
     let tot=0; const lines=VIS.map(o=>{const v=o.s.points[i]||0;tot+=v;
       return `<div><span style="color:${color(o.ci)}">■</span> ${esc(o.s.name)} ${fmt(v)}</div>`;}).join('');
     const rtip=REF.map(o=>`<div><span style="color:${color(o.ci)}">┅</span> ${esc(o.s.name)} ${fmt(o.s.points[i]||0)}</div>`).join('');
-    const otip=(ov?[ov]:[]).concat(EX.map(o=>o.s))
-      .map(s=>`<div>▦ ${esc(s.name)} ${fmt(s.points[i]||0)}</div>`).join('');
+    const otip=ov?`<div>▦ ${esc(ov.name)} ${fmt(ov.points[i])}</div>`:'';
     showTip(`<b>${esc(d.x[i])}</b>${lines}${VIS.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${rtip}${otip}`,e.clientX,e.clientY);
   });
   svg.addEventListener('mouseleave',()=>{cross.setAttribute('opacity','0');hideTip();});

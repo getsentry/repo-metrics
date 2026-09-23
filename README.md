@@ -179,13 +179,12 @@ split each month's churn by what it did to the code:
 | `net-new` | Lines added beyond what was removed |
 
 A bigger feature is not a more valuable one, so the value-add percentage counts
-commits. A commit is value-add when net-new lines are more than half its churn,
-which makes moving code between files rework. It is read two ways: by that diff
-shape, and by the author's own `feat:` prefix where most commits carry a
-conventional-commit label. The summary under the chart says where the two
-disagree. On relay, snuba and sentry-python, diff shape calls about 78% of `feat:`
-commits value-add and about 35% of `fix:`/`ref:`/`chore:` commits, so it runs high:
-a fix that adds a guard and a test looks like growth.
+commits, and it reads the author's own label: the share of conventional-commit
+subjects that are `feat:`. Whether a change adds capability is a question of
+intent, and the shape of a diff can't answer it — a fix that adds a guard and a
+test looks just like growth. The percentage is only drawn where at least half the
+commits carry a label; months below that are gaps, and a repo below it gets no
+line at all and a note saying why.
 
 The dashed line is Shore's maintenance model. Each net-new line is expected to cost
 `--year1` lines (default 1.0) of rework or deletion in its first year and `--after`
