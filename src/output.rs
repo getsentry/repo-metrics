@@ -174,6 +174,19 @@ pub enum Output {
         overlay: Option<Series>,
         #[serde(skip_serializing_if = "Option::is_none")]
         overlay_label: Option<String>,
+        /// More lines on the overlay's axis, for a measure worth reading two ways.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        overlay_extra: Vec<Series>,
+        /// The overlay is a rate, so its summary is an average rather than a peak.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        overlay_rate: bool,
+        /// Unstacked lines on the left axis: a model or baseline in the same unit as
+        /// the bands, to be read against their top edge rather than added to them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reference: Vec<Series>,
+        /// A sentence of whole-range summary that the chart itself cannot show.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
     },
     Table {
         title: String,
@@ -367,11 +380,17 @@ pub fn render_term(o: &Output) -> String {
             rate,
             overlay,
             overlay_label,
+            overlay_extra,
+            overlay_rate,
+            reference,
+            note,
             ..
         } => {
             let namew = series
                 .iter()
                 .chain(overlay.iter())
+                .chain(overlay_extra.iter())
+                .chain(reference.iter())
                 .map(|s| width(&s.name))
                 .max()
                 .unwrap_or(0)
@@ -396,19 +415,40 @@ pub fn render_term(o: &Output) -> String {
                     st.dim(&summary)
                 ));
             }
-            if let Some(ov) = overlay {
+            for r in reference {
+                out.push_str(&format!(
+                    "  {}  {}  {}\n",
+                    pad(&r.name, namew, false),
+                    st.dim(&sparkline(&r.points)),
+                    st.dim(&format!(
+                        "{} {}",
+                        group(r.points.iter().sum::<f64>() as i64),
+                        y_label
+                    ))
+                ));
+            }
+            for ov in overlay.iter().chain(overlay_extra.iter()) {
                 // Its own scale, so the total is a peak rather than a sum.
-                let peak = ov.points.iter().cloned().fold(0.0f64, f64::max);
+                let summary = if *overlay_rate {
+                    let live: Vec<f64> = ov.points.iter().cloned().filter(|v| *v > 0.0).collect();
+                    let avg = live.iter().sum::<f64>() / live.len().max(1) as f64;
+                    format!("avg {avg:.1}")
+                } else {
+                    let peak = ov.points.iter().cloned().fold(0.0f64, f64::max);
+                    format!("peak {}", group(peak as i64))
+                };
                 out.push_str(&format!(
                     "  {}  {}  {}\n",
                     pad(&ov.name, namew, false),
                     st.dim(&sparkline(&ov.points)),
                     st.dim(&format!(
-                        "peak {} {}",
-                        group(peak as i64),
+                        "{summary} {}",
                         overlay_label.as_deref().unwrap_or("")
                     ))
                 ));
+            }
+            if let Some(n) = note {
+                out.push_str(&format!("\n  {n}\n"));
             }
             if let (Some(first), Some(last)) = (x.first(), x.last()) {
                 out.push_str(&format!(

@@ -164,6 +164,11 @@ function renderSeries(el,d){
   // Colour is fixed over every series that has data, before anything is hidden, so
   // toggling one off never recolours the rest.
   const ALL=d.series.filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:i}));
+  // Reference lines take the colours after the bands; extra overlay lines stay ink
+  // like the overlay and are told apart by their dash.
+  const REFALL=(d.reference||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,ci:ALL.length+i}));
+  const EXALL=(d.overlay_extra||[]).filter(s=>s.points.some(v=>v>0)).map((s,i)=>({s,dash:['2 4','10 3 2 3'][i%2]}));
+  const noteHtml=d.note?`<p class="caveat" style="border-left-color:var(--accent);color:var(--muted)">${esc(d.note)}</p>`:'';
   if(!n||!(ALL.length||ovAll)){el.innerHTML='<div class="empty">No data in this range.</div>';return;}
   // Hidden set lives on the data object: it survives a theme re-render, and a new
   // query brings a new object, so the chart never opens with something missing.
@@ -171,22 +176,27 @@ function renderSeries(el,d){
   const OV='overlay';
   const VIS=ALL.filter(o=>!hidden.has('s:'+o.s.name));
   const ov=(ovAll&&!hidden.has(OV))?ovAll:null;
+  const REF=REFALL.filter(o=>!hidden.has('r:'+o.s.name));
+  const EX=EXALL.filter(o=>!hidden.has('x:'+o.s.name));
+  const right=ov||EX.length;
 
-  const W=1000,H=340,mL=58,mR=ov?62:16,mT=ov?32:14,mB=30;
+  const W=1000,H=340,mL=58,mR=right?62:16,mT=right?32:14,mB=30;
   const iw=W-mL-mR, ih=H-mT-mB;
   let max=0;
   // Scale follows what is actually drawn, so hiding the series that dwarfs the rest
   // opens the others up instead of leaving them flat along the axis.
   if(d.stacked){for(let i=0;i<n;i++){let s=0;for(const o of VIS)s+=o.s.points[i]||0;max=Math.max(max,s);}}
   else{for(const o of VIS)for(const v of o.s.points)max=Math.max(max,v||0);}
+  for(const o of REF)for(const v of o.s.points)max=Math.max(max,v||0);
   if(max<=0)max=1;
   const X=i=> n===1?mL+iw/2 : mL+(i/(n-1))*iw;
   const Y=v=> mT+ih-(v/max)*ih;
   // A second, independent scale. Where the overlay crosses the bands below is a
   // consequence of these two ranges and means nothing on its own.
   let omax=0; if(ov)for(const v of ov.points)omax=Math.max(omax,v||0);
-  const oStep=ov?niceStep(omax/4):1;
-  if(ov)omax=Math.max(Math.ceil(omax/oStep)*oStep,oStep);
+  for(const o of EX)for(const v of o.s.points)omax=Math.max(omax,v||0);
+  const oStep=right?niceStep(omax/4):1;
+  if(right)omax=Math.max(Math.ceil(omax/oStep)*oStep,oStep);
   const Y2=v=> mT+ih-(v/omax)*ih;
 
   let g='';
@@ -197,12 +207,13 @@ function renderSeries(el,d){
   const TICKS=Math.round(max/yStep);
   // With every series hidden the left scale describes nothing, so it goes away
   // rather than printing a 0-to-1 axis nobody asked about.
-  if(VIS.length)for(let t=0;t<=TICKS;t++){
+  const left=VIS.length||REF.length;
+  if(left)for(let t=0;t<=TICKS;t++){
     const v=yStep*t, y=Y(v);
     g+=`<line x1="${mL}" y1="${y}" x2="${W-mR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
     g+=`<text x="${mL-8}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--faint)" class="mono">${fmt(v)}</text>`;
   }
-  if(ov){
+  if(right){
     const oticks=Math.round(omax/oStep);
     for(let t=0;t<=oticks;t++){
       const v=oStep*t, y=Y2(v);
@@ -210,8 +221,8 @@ function renderSeries(el,d){
     }
     // Sit the titles clear of the topmost tick label rather than on it, and keep
     // the right-hand one inside the viewBox.
-    g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||ov.name)} →</text>`;
-    if(VIS.length)g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
+    g+=`<text x="${W-4}" y="12" text-anchor="end" font-size="10" fill="var(--text)">${esc(d.overlay_label||(ov||EX[0].s).name)} →</text>`;
+    if(left)g+=`<text x="4" y="12" text-anchor="start" font-size="10" fill="var(--faint)">← ${esc(d.y_label||'')}</text>`;
   }
   const step=Math.max(1,Math.ceil(n/7));
   for(let i=0;i<n;i+=step){
@@ -239,6 +250,19 @@ function renderSeries(el,d){
     });
   }
 
+  REF.forEach(o=>{
+    let pts='';
+    for(let i=0;i<n;i++)pts+=`${X(i)},${Y(o.s.points[i]||0)} `;
+    // Drawn over the stack, not in it: a model to read against the bands, not add to them.
+    marks+=`<polyline points="${pts}" fill="none" stroke="${color(o.ci)}" stroke-width="2.5"
+            stroke-dasharray="8 4" stroke-linejoin="round" stroke-linecap="round"/>`;
+  });
+  EX.forEach(o=>{
+    let pts='';
+    for(let i=0;i<n;i++)pts+=`${X(i)},${Y2(o.s.points[i]||0)} `;
+    marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="1.5"
+            stroke-dasharray="${o.dash}" stroke-linejoin="round" stroke-linecap="round" opacity="0.6"/>`;
+  });
   if(ov){
     let pts='';
     for(let i=0;i<n;i++)pts+=`${X(i)},${Y2(ov.points[i]||0)} `;
@@ -247,7 +271,7 @@ function renderSeries(el,d){
     marks+=`<polyline points="${pts}" fill="none" stroke="var(--text)" stroke-width="2"
             stroke-dasharray="6 4" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/>`;
   }
-  if(!VIS.length&&!ov){
+  if(!left&&!right){
     marks+=`<text x="${mL+iw/2}" y="${mT+ih/2}" text-anchor="middle" font-size="13"
             fill="var(--faint)">Nothing selected — pick a series below</text>`;
   }
@@ -259,15 +283,17 @@ function renderSeries(el,d){
     return `<button type="button" class="lg${off?' off':''}" data-k="${esc(key)}"
       aria-pressed="${off?'false':'true'}"><i style="background:${swatch}"></i>${esc(label)}${extra||''}</button>`;
   };
+  const rightTag=' <em style="font-style:normal;opacity:.7">(right axis)</em>';
   const legend=ALL.map(o=>chip('s:'+o.s.name,color(o.ci),o.s.name)).join('')
-    +(ovAll?chip(OV,'var(--text)',ovAll.name,
-        ' <em style="font-style:normal;opacity:.7">(right axis)</em>'):'');
+    +REFALL.map(o=>chip('r:'+o.s.name,color(o.ci),o.s.name,' <em style="font-style:normal;opacity:.7">(dashed)</em>')).join('')
+    +(ovAll?chip(OV,'var(--text)',ovAll.name,rightTag):'')
+    +EXALL.map(o=>chip('x:'+o.s.name,'var(--faint)',o.s.name,rightTag)).join('');
 
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img"
       aria-label="${esc(d.title)}">${g}${marks}
       <line id="cross" x1="0" y1="${mT}" x2="0" y2="${mT+ih}" stroke="var(--faint)"
         stroke-width="1" stroke-dasharray="3 3" opacity="0"/></svg>
-    <div class="legend">${legend}</div>`;
+    <div class="legend">${legend}</div>${noteHtml}`;
 
   el.querySelectorAll('.lg').forEach(b=>b.addEventListener('click',()=>{
     const k=b.dataset.k;
@@ -280,7 +306,7 @@ function renderSeries(el,d){
 
   const svg=el.querySelector('svg'), cross=svg.querySelector('#cross');
   svg.addEventListener('mousemove',e=>{
-    if(!VIS.length&&!ov)return;
+    if(!left&&!right)return;
     const r=svg.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width*W;
     let i=Math.round(((px-mL)/iw)*(n-1));
@@ -288,8 +314,10 @@ function renderSeries(el,d){
     cross.setAttribute('x1',X(i));cross.setAttribute('x2',X(i));cross.setAttribute('opacity','1');
     let tot=0; const lines=VIS.map(o=>{const v=o.s.points[i]||0;tot+=v;
       return `<div><span style="color:${color(o.ci)}">■</span> ${esc(o.s.name)} ${fmt(v)}</div>`;}).join('');
-    const otip=ov?`<div>▦ ${esc(ov.name)} ${fmt(ov.points[i]||0)}</div>`:'';
-    showTip(`<b>${esc(d.x[i])}</b>${lines}${VIS.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${otip}`,e.clientX,e.clientY);
+    const rtip=REF.map(o=>`<div><span style="color:${color(o.ci)}">┅</span> ${esc(o.s.name)} ${fmt(o.s.points[i]||0)}</div>`).join('');
+    const otip=(ov?[ov]:[]).concat(EX.map(o=>o.s))
+      .map(s=>`<div>▦ ${esc(s.name)} ${fmt(s.points[i]||0)}</div>`).join('');
+    showTip(`<b>${esc(d.x[i])}</b>${lines}${VIS.length>1?`<div style="opacity:.65">total ${fmt(tot)}</div>`:''}${rtip}${otip}`,e.clientX,e.clientY);
   });
   svg.addEventListener('mouseleave',()=>{cross.setAttribute('opacity','0');hideTip();});
 }

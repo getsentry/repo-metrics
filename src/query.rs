@@ -395,23 +395,28 @@ pub fn axis(keys: &[i32], b: Bucket) -> Vec<(i32, String)> {
     let mut guard = 0;
     while cur <= max && guard < 200_000 {
         out.push(bucket_key(cur, b));
-        let d = days_to_date(cur);
-        cur = match b {
-            Bucket::Day => cur + 1,
-            Bucket::Week => cur + 7,
-            Bucket::Month => {
-                let (y, m) = if d.month() == 12 {
-                    (d.year() + 1, 1)
-                } else {
-                    (d.year(), d.month() + 1)
-                };
-                date_to_days(NaiveDate::from_ymd_opt(y, m, 1).unwrap())
-            }
-        };
+        cur = next_bucket(cur, b);
         guard += 1;
     }
     out.dedup_by_key(|(k, _)| *k);
     out
+}
+
+/// First day of the bucket after the one `days` falls in.
+pub fn next_bucket(days: i32, b: Bucket) -> i32 {
+    let d = days_to_date(days);
+    match b {
+        Bucket::Day => days + 1,
+        Bucket::Week => bucket_key(days, b).0 + 7,
+        Bucket::Month => {
+            let (y, m) = if d.month() == 12 {
+                (d.year() + 1, 1)
+            } else {
+                (d.year(), d.month() + 1)
+            };
+            date_to_days(NaiveDate::from_ymd_opt(y, m, 1).unwrap())
+        }
+    }
 }
 
 pub fn build_series(

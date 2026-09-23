@@ -155,6 +155,35 @@ for m in files sloc bytes; do
     || { echo "  FAIL tree --measure $m"; fail=1; }
 done
 
+chk "value header"      1 "Value-add vs muda"    $B value --repo sentry --since 90d
+# The value view splits churn into three bands after dropping lockfiles and generated
+# files, so per bucket it can only ever be at most the plain churn for that bucket.
+# Its percentages are shares of commits, and the maintenance model is linear in its
+# two rates.
+python3 - "$B" <<'PYEOF' || { echo "  FAIL value view"; fail=1; }
+import json,subprocess,sys
+B=sys.argv[1]
+def run(*a):
+    return json.loads(subprocess.run([B,*a,"--repo","sentry","--since","90d","--format","json"],
+        capture_output=True,text=True).stdout)
+v=run("value","--by","month")
+ts=run("timeseries","--by","month","--metric","churn","--overlay","none")
+assert [s["name"] for s in v["series"]]==["reworked lines","deleted lines","net-new lines"]
+assert v["x"]==ts["x"], "value and timeseries disagree on buckets"
+churn=ts["series"][0]["points"]
+for i in range(len(v["x"])):
+    bands=sum(s["points"][i] for s in v["series"])
+    assert bands<=churn[i]+0.5, f"bucket {i}: bands {bands} > churn {churn[i]}"
+for s in [v["overlay"],*v.get("overlay_extra",[])]:
+    assert len(s["points"])==len(v["x"]), s["name"]+" length differs from x"
+    assert all(0<=p<=100 for p in s["points"]), s["name"]+" out of 0..100"
+ref=v["reference"][0]["points"]
+assert any(p>0 for p in ref), "expected maintenance is all zero"
+dbl=run("value","--by","month","--year1","2","--after","0.2")["reference"][0]["points"]
+assert all(abs(d-2*r)<0.01 for d,r in zip(dbl,ref)), "maintenance model is not linear in its rates"
+assert v.get("note"), "no summary note"
+PYEOF
+
 # The web app keeps its state in the URL so views can be bookmarked. Only checked
 # when a server happens to be running; check.sh does not start one.
 PORT="${PORT:-7777}"

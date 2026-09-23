@@ -119,6 +119,7 @@ repo-metrics compare    2025-H2 2026-H1 --repo sentry
 repo-metrics flags      --repo sentry --z 2.5 --min-churn 200
 repo-metrics assist     --repo sentry --by month
 repo-metrics authors    --repo sentry --since 6m --top 25
+repo-metrics value      --repo sentry --since 2y --by month
 ```
 
 | Command | Answers |
@@ -131,6 +132,7 @@ repo-metrics authors    --repo sentry --since 6m --top 25
 | `flags` | Weeks where a folder broke out of its own trailing baseline |
 | `assist` | Human vs agent-assisted vs bot over time |
 | `authors` | Who is committing, and whether an agent helped |
+| `value` | How much effort adds capability, and how much is rework, deletion and upkeep |
 
 Every view takes `--repo`, `--since`, `--until` and `--path`. Dates can be
 `YYYY-MM-DD`, `90d`, `12w`, `6m`, `2y` or a year. `compare` also understands
@@ -159,6 +161,40 @@ on a 20,000-file tree.
 ways. `--per commit` gives average commit size — lines added, removed, modified or
 churned per commit — and `--per human` gives output per person. Metrics are
 `commits`, `churn`, `added`, `removed`, `modified` and `files`.
+
+### Value-add and muda
+
+`value` borrows James Shore's framing from
+[Measuring AI's Unintended Consequences](https://www.jamesshore.com/v2/blog/2026/measuring-ais-unintended-consequences):
+effort that adds capability is value-add, and everything else — fixes, refactors,
+upgrades, deletions — is *muda*. Some muda is necessary; it still isn't value-add.
+
+Lines measure cost, not value. Every line kept is a line to maintain, so the bands
+split each month's churn by what it did to the code:
+
+| | |
+|---|---|
+| `reworked` | Lines rewritten in place, both sides: `2 × min(added, removed)` per file |
+| `deleted` | Lines removed beyond what was added back |
+| `net-new` | Lines added beyond what was removed |
+
+A bigger feature is not a more valuable one, so the value-add percentage counts
+commits. A commit is value-add when net-new lines are more than half its churn,
+which makes moving code between files rework. It is read two ways: by that diff
+shape, and by the author's own `feat:` prefix where most commits carry a
+conventional-commit label. The summary under the chart says where the two
+disagree. On relay, snuba and sentry-python, diff shape calls about 78% of `feat:`
+commits value-add and about 35% of `fix:`/`ref:`/`chore:` commits, so it runs high:
+a fix that adds a guard and a test looks like growth.
+
+The dashed line is Shore's maintenance model. Each net-new line is expected to cost
+`--year1` lines (default 1.0) of rework or deletion in its first year and `--after`
+(default 0.1) every year after. It reads growth from the start of history, since
+code written before `--since` is still being maintained inside the window; compare
+it against the top of the reworked and deleted bands.
+
+Lockfiles, translation catalogues, snapshots, migrations and generated or minified
+files are left out of every number in this view.
 
 ### Which lines count
 

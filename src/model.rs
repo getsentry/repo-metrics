@@ -20,7 +20,9 @@ use std::path::PathBuf;
 /// and a leading `*` as a comment continuation. The layout is unchanged, but the
 /// comment and blank counts written under version 4 were measured by the older,
 /// wronger rule, and nothing in the file says so.
-pub const PARSER_VERSION: u32 = 5;
+/// 6: store each commit's subject line, so the value view can read the author's own
+/// label (`feat:`, `fix:`) as a cross-check on what the diff shape says.
+pub const PARSER_VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Cache {
@@ -57,6 +59,9 @@ pub struct Commit {
     /// Raw co-author identities, stored unclassified. Labels are derived on read so
     /// a newly-recognised agent is a config edit, not a re-ingest.
     pub coauthors: Vec<(u32, u32)>,
+    /// First line of the message, stored raw for the same reason as `coauthors`:
+    /// how a subject maps to an intent is a read-time rule that will keep changing.
+    pub subject: u32,
     pub change_start: u32,
     pub change_len: u32,
 }

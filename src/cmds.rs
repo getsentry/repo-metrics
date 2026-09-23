@@ -101,6 +101,10 @@ pub fn timeseries(
         rate: per != Per::Total,
         overlay: overlay_series,
         overlay_label: Some("distinct humans".into()),
+        overlay_extra: Vec::new(),
+        overlay_rate: false,
+        reference: Vec::new(),
+        note: None,
     }
 }
 
@@ -332,6 +336,10 @@ pub fn folders(
         rate: per != Per::Total,
         overlay: None,
         overlay_label: None,
+        overlay_extra: Vec::new(),
+        overlay_rate: false,
+        reference: Vec::new(),
+        note: None,
     }
 }
 
@@ -888,6 +896,10 @@ pub fn assist_mix(cache: &Cache, ids: &Identities, f: &Filter, b: Bucket) -> Out
         rate: false,
         overlay: None,
         overlay_label: None,
+        overlay_extra: Vec::new(),
+        overlay_rate: false,
+        reference: Vec::new(),
+        note: None,
     }
 }
 

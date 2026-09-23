@@ -42,6 +42,7 @@ pub struct RawCommit {
     pub email: String,
     pub is_merge: bool,
     pub coauthors: Vec<(String, String)>,
+    pub subject: String,
 }
 
 /// `git log --numstat` renders renames inline, in two shapes:
@@ -117,6 +118,7 @@ fn parse_meta(out: &str) -> Vec<RawCommit> {
             email: email.to_string(),
             is_merge: parents.split_whitespace().count() > 1,
             coauthors,
+            subject: body.lines().next().unwrap_or("").trim().to_string(),
         });
     }
     commits
@@ -378,6 +380,7 @@ fn build_repo_data(
             .iter()
             .map(|(n, e)| (interner.intern(n), interner.intern(e)))
             .collect();
+        let subject = interner.intern(&c.subject);
         commits.push(Commit {
             sha: c.sha,
             days: c.days,
@@ -386,6 +389,7 @@ fn build_repo_data(
             email,
             is_merge: c.is_merge,
             coauthors,
+            subject,
             change_start: start,
             change_len: (changes.len() as u32) - start,
         });

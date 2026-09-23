@@ -19,6 +19,7 @@ mod refresh;
 mod schedule;
 mod server;
 mod sync;
+mod value;
 
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
@@ -197,6 +198,20 @@ enum Cmd {
     Assist {
         #[arg(long, value_enum, default_value = "month")]
         by: Bucket,
+        #[command(flatten)]
+        scope: Scope,
+    },
+    /// Value-add vs muda: net-new, reworked and deleted lines, with the share of
+    /// commits that add capability and the maintenance the growth should cost
+    Value {
+        #[arg(long, value_enum, default_value = "month")]
+        by: Bucket,
+        /// Maintenance lines each new line costs in its first year
+        #[arg(long, default_value = "1.0")]
+        year1: f64,
+        /// Maintenance lines each new line costs in every later year
+        #[arg(long, default_value = "0.1")]
+        after: f64,
         #[command(flatten)]
         scope: Scope,
     },
@@ -512,6 +527,18 @@ fn main() -> Result<()> {
             let (c, ids) = load()?;
             let f = scope.filter()?;
             let mut o = cmds::assist_mix(&c, &ids, &f, by);
+            stamp_source(&mut o, &c, &f);
+            emit(&o, &scope)?;
+        }
+        Cmd::Value {
+            by,
+            year1,
+            after,
+            scope,
+        } => {
+            let (c, ids) = load()?;
+            let f = scope.filter()?;
+            let mut o = value::value(&c, &ids, &f, by, scope.lines, year1, after);
             stamp_source(&mut o, &c, &f);
             emit(&o, &scope)?;
         }

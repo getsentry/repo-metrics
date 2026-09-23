@@ -8,6 +8,7 @@ use crate::model::*;
 use crate::output::Output;
 use crate::proc::{pid_alive, signal};
 use crate::query::*;
+use crate::value;
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -447,6 +448,15 @@ fn build_view(state: &State, q: &HashMap<String, String>) -> Result<Output> {
         ),
         "authors" => cmds::authors(&cache, &ids, &f, top.max(5), lines),
         "assist" => cmds::assist_mix(&cache, &ids, &f, by),
+        "value" => value::value(
+            &cache,
+            &ids,
+            &f,
+            by,
+            lines,
+            getf(q, "year1", 1.0),
+            getf(q, "after", 0.1),
+        ),
         "compare" => cmds::compare(
             &cache,
             &ids,
@@ -527,6 +537,7 @@ const VIEWS=[
   ['flags',     'Interesting periods', ['repo','since','until','path','lines','depth','z','min_churn','top'],{{depth:'1',top:'30'}}],
   ['assist',    'Human vs agent',      ['repo','since','until','path','by'],{{by:'month'}}],
   ['authors',   'Authors',             ['repo','since','until','path','top'],{{top:'25'}}],
+  ['value',     'Value-add vs muda',   ['repo','since','until','path','by','lines','year1','after'],{{by:'month'}}],
 ];
 // Per-view defaults win over the field default, but never over something the
 // reader has already chosen for that field.
@@ -552,6 +563,8 @@ const FIELDS={{
   top:   {{t:'select',label:'top',opts:['5','8','12','20','30','50'],def:'12'}},
   z:     {{t:'text',label:'z >',ph:'2.5',def:'2.5'}},
   min_churn:{{t:'text',label:'min churn',ph:'200',def:'200'}},
+  year1: {{t:'text',label:'upkeep yr 1',ph:'1.0',def:'1.0'}},
+  after: {{t:'text',label:'upkeep later',ph:'0.1',def:'0.1'}},
 }};
 
 let view='timeseries', gen=0, state={{}};
